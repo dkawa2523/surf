@@ -1,0 +1,43 @@
+from wafer_surrogate.models.api import (
+    MODEL_REGISTRY,
+    ConditionMap,
+    ConstantVnModel,
+    FeatureMap,
+    Model,
+    ModelFactory,
+    SurfaceGraphVnModel,
+    TimeConditionedOperatorModel,
+    make_model,
+    list_models,
+    register_model,
+)
+from wafer_surrogate.models.sparse_unet_film import (
+    FeatureContract,
+    OptionalSparseDependencyUnavailable,
+    SparseTensorVnModel,
+    SparseUNetFiLM,
+    build_narrow_band_sparse_inputs,
+    sparse_dependencies_available,
+    splat_vn_to_grid,
+)
+
+__all__ = [
+    "ConditionMap",
+    "ConstantVnModel",
+    "FeatureMap",
+    "MODEL_REGISTRY",
+    "Model",
+    "ModelFactory",
+    "SurfaceGraphVnModel",
+    "SparseTensorVnModel",
+    "SparseUNetFiLM",
+    "TimeConditionedOperatorModel",
+    "FeatureContract",
+    "OptionalSparseDependencyUnavailable",
+    "build_narrow_band_sparse_inputs",
+    "list_models",
+    "make_model",
+    "register_model",
+    "sparse_dependencies_available",
+    "splat_vn_to_grid",
+]

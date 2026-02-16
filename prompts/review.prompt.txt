@@ -1,0 +1,9 @@
+You are running a REVIEW/CONSISTENCY task.
+
+Goals:
+- Find and fix inconsistencies across docs/tasks/scripts.
+- Ensure commands and package names are consistent.
+- Do NOT add features; only fix breakages or inconsistencies.
+- Respect scope_limits.
+
+{{TASK_BODY}}

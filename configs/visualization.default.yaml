@@ -1,0 +1,21 @@
+schema_version: 1
+defaults:
+  enabled: true
+train:
+  learning_curves: true
+  scatter_gt_pred: true
+  r2: true
+inference:
+  temporal_diagnostics_plot: true
+sdf_views:
+  xy: true
+  xz: true
+  yz: true
+  gt_pred_error: true
+mesh3d:
+  html: true
+  cutaway: true
+  compare_t8: true
+export:
+  dpi: 140
+  max_frames: all

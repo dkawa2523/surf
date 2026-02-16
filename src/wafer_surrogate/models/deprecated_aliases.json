@@ -1,0 +1,13 @@
+{
+  "sparse_vn_student": {
+    "target": "sparse_vn_student_linear_legacy",
+    "remove_after": "2026-06-30",
+    "reason": "legacy tabular alias; use train.mode=sparse_distill for SparseTensor training"
+  },
+  "sparse_vn_teacher": {
+    "target": "sparse_vn_teacher_linear_legacy",
+    "remove_after": "2026-06-30",
+    "reason": "legacy tabular alias; use train.mode=sparse_distill for SparseTensor training"
+  }
+}
+

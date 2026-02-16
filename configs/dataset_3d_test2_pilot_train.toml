@@ -1,0 +1,43 @@
+[project]
+name = "dataset-3d-test2-pilot"
+
+[run]
+mode = "train"
+output_dir = "runs"
+run_id = "dataset_3d_test2_pilot_quick"
+
+[pipeline]
+stages = ["train"]
+
+[pipeline.external_inputs.train]
+narrow_band_h5 = "runs/dataset_3d_test2_pilot/prepared/train_narrow_band.h5"
+feature_contract_json = "runs/dataset_3d_test2_pilot/prepared/feature_contract.json"
+point_level_manifest_json = "runs/dataset_3d_test2_pilot/prepared/point_level_manifest.json"
+
+[train]
+mode = "sparse_distill"
+strict_split = true
+seed = 42
+device = "cpu"
+
+teacher_epochs = 4
+student_epochs = 6
+batch_size_steps = 4
+sparse_batch_points = 12000
+learning_rate = 0.001
+weight_decay = 1e-6
+distill_alpha = 0.5
+distill_beta = 0.2
+distill_gamma = 0.1
+
+grad_clip_norm = 5.0
+early_stopping_patience = 2
+lr_scheduler = "none"
+rollout_loss_enabled = true
+rollout_k = 3
+rollout_weight = 0.1
+temporal_step_weight = "early_decay"
+step_sampling_policy = "early_bias"
+
+sparse_model_profile = "small"
+fallback_model = "baseline_vn_linear_trainable"

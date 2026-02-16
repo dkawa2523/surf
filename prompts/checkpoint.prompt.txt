@@ -1,0 +1,10 @@
+You are at a CHECKPOINT.
+
+Goals:
+- Summarize what has been completed (tasks done, commands that pass).
+- List any known issues or TODOs for the next phase.
+- Ensure docs/TRACEABILITY.md still maps 100% requirements -> tasks.
+
+Do NOT implement new features beyond small doc fixes.
+
+{{TASK_BODY}}

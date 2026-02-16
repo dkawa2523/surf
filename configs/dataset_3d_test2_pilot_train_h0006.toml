@@ -1,0 +1,36 @@
+[project]
+name = "dataset-3d-test2-pilot-h0006"
+
+[run]
+mode = "train"
+output_dir = "runs"
+run_id = "dataset_3d_test2_pilot_h0006_quick"
+
+[pipeline]
+stages = ["train"]
+
+[pipeline.external_inputs.train]
+narrow_band_h5 = "runs/dataset_3d_test2_pilot_h0006/prepared/train_narrow_band.h5"
+
+[train]
+mode = "sparse_distill"
+strict_split = true
+seed = 42
+device = "cpu"
+
+teacher_epochs = 4
+student_epochs = 6
+batch_size_steps = 4
+sparse_batch_points = 12000
+learning_rate = 0.001
+weight_decay = 1e-6
+distill_alpha = 0.5
+distill_beta = 0.2
+distill_gamma = 0.1
+
+grad_clip_norm = 5.0
+early_stopping_patience = 2
+lr_scheduler = "none"
+
+sparse_model_profile = "small"
+fallback_model = "baseline_vn_linear_trainable"

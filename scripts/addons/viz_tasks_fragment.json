@@ -1,0 +1,149 @@
+{
+  "insert_after_task_id": "P0-CHECKPOINT",
+  "insert_before_task_id": "DECISION-P1-001",
+  "tasks": [
+    {
+      "task_id": "P0-VIZ-001",
+      "phase": "P0",
+      "type": "implement",
+      "title": "Add VTI/PVD time-series export (SDF/fields) + CLI (viz export-vti)",
+      "description": "実装後の時間ごとの出力を VTI(.vti) と PVD(.pvd) で保存し、ParaView 等で時系列可視化できるようにする。依存追加なしで動く ASCII VTI をまず実装し、将来拡張余地を残す。",
+      "acceptance_criteria": [
+        "`src/wafer_surrogate/viz/vti.py` に VTI(ASCII) と PVD を書き出すユーティリティを追加する（numpyがあれば利用、無くても最小動作）。",
+        "CLIに `viz export-vti` を追加する（入力: `--run-dir` または `--phi-npz`。出力: `runs/<run_id>/viz/vti/...`）。",
+        "`--smoke` オプションで合成データ（P0-003）から少数ステップのVTIを生成し、pvdも生成できる。",
+        "`docs/VIZ_SPEC.md` の仕様（shape, flatten order='F', extent, output layout）に従う。",
+        "既存のP0コマンド・run構造を壊さない。"
+      ],
+      "estimated_minutes": 90,
+      "scope_limits": {
+        "max_changed_files": 5,
+        "max_diff_lines": 350,
+        "allowed_dirs": [
+          "src/wafer_surrogate",
+          "docs",
+          "scripts"
+        ],
+        "forbidden_actions": [
+          "dependency_add",
+          "network_enable",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh",
+        "./scripts/commands.sh run -- viz --help",
+        "./scripts/commands.sh run -- viz export-vti --smoke",
+        "./scripts/commands.sh verify -- --quick"
+      ],
+      "stop_after": false
+    },
+    {
+      "task_id": "P0-VIZ-002",
+      "phase": "P0",
+      "type": "implement",
+      "title": "Add 3D quicklook visualization (slice PNGs) after SDF processing + CLI (viz render-slices)",
+      "description": "SDF/表面処理後の3Dデータを、XY/XZ/YZ 断面のクイックルック画像として出力できるようにする。可能なら φ=0 輪郭をオーバーレイする。ParaView向けにはP0-VIZ-001のVTIを併用。",
+      "acceptance_criteria": [
+        "`src/wafer_surrogate/viz/render.py`（または同等）を追加し、3D scalar field からスライスPNGを生成できる。",
+        "CLIに `viz render-slices` を追加する（入力: `--run-dir` / `--phi-npz` / `--vti-dir` のいずれか、出力: `runs/<run_id>/viz/png/slices/...`）。",
+        "デフォルトで中心断面（x=nx//2, y=ny//2, z=nz//2）をレンダリングし、CLIで断面位置を指定できる。",
+        "matplotlibが無い環境では、エラーで落としっぱなしにせず「VTI出力のみ」などの graceful fallback を提供する（最低限: コマンドが成功し、代替出力が残る）。"
+      ],
+      "estimated_minutes": 120,
+      "scope_limits": {
+        "max_changed_files": 5,
+        "max_diff_lines": 400,
+        "allowed_dirs": [
+          "src/wafer_surrogate",
+          "docs",
+          "scripts"
+        ],
+        "forbidden_actions": [
+          "dependency_add",
+          "network_enable",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh",
+        "./scripts/commands.sh run -- viz render-slices --smoke",
+        "./scripts/commands.sh verify -- --quick"
+      ],
+      "stop_after": false
+    },
+    {
+      "task_id": "P0-VIZ-003",
+      "phase": "P0",
+      "type": "implement",
+      "title": "Add validation/test cross-section contour overlay (pred vs gt) + eval integration",
+      "description": "Validation/Test で、横から見た断面（XZ面, y固定）の φ=0 輪郭を pred と gt で重ねた比較画像を出力する。評価時の第三者レビューを容易にする。",
+      "acceptance_criteria": [
+        "`src/wafer_surrogate/viz/compare_sections.py`（または同等）を追加し、pred/gt φ から断面輪郭比較PNGを生成できる。",
+        "デフォルト断面は XZ面（y=ny//2）。`--y-index` で指定可能。",
+        "`eval` コマンドにフックを追加し、val/test の先頭Nサンプル（例: N=3）について比較画像を `runs/<run_id>/viz/png/compare/` に出力する（オプションでOFF可能）。",
+        "matplotlibが無い環境では graceful fallback（少なくとも輪郭座標のjson出力等）を用意し、評価が完全停止しない。",
+        "既存の評価メトリクス計算を壊さない。"
+      ],
+      "estimated_minutes": 120,
+      "scope_limits": {
+        "max_changed_files": 5,
+        "max_diff_lines": 400,
+        "allowed_dirs": [
+          "src/wafer_surrogate",
+          "docs",
+          "scripts"
+        ],
+        "forbidden_actions": [
+          "dependency_add",
+          "network_enable",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh",
+        "./scripts/commands.sh run -- eval --smoke",
+        "./scripts/commands.sh run -- viz compare-sections --smoke",
+        "./scripts/commands.sh verify -- --quick"
+      ],
+      "stop_after": false
+    },
+    {
+      "task_id": "P0-VIZ-004",
+      "phase": "P0",
+      "type": "implement",
+      "title": "Add training/eval plots (loss/metrics curves + hist) + CLI (viz plot-metrics)",
+      "description": "学習ログと評価結果から、loss/metricsの推移や分布をプロットして `runs/<run_id>/viz/plots/` に保存する。マネージャー/第三者が run を理解しやすくする。",
+      "acceptance_criteria": [
+        "`src/wafer_surrogate/viz/plots.py`（または同等）を追加し、run_dir 内の metrics ログ（jsonl/csv等）を探索してプロット生成できる。",
+        "CLIに `viz plot-metrics` を追加する（入力: `--run-dir`、出力: `runs/<run_id>/viz/plots/...`）。",
+        "可能なら `eval` 実行後に自動で `plot-metrics` を呼び、同じ run_dir に図を残す（オプションでOFF可）。",
+        "matplotlibが無い場合でも graceful fallback（csv summary だけは生成など）を用意する。",
+        "生成物は `runs/` 配下に集約し、.gitignore方針に従う。"
+      ],
+      "estimated_minutes": 120,
+      "scope_limits": {
+        "max_changed_files": 5,
+        "max_diff_lines": 400,
+        "allowed_dirs": [
+          "src/wafer_surrogate",
+          "docs",
+          "scripts"
+        ],
+        "forbidden_actions": [
+          "dependency_add",
+          "network_enable",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh",
+        "./scripts/commands.sh run -- train --smoke",
+        "./scripts/commands.sh run -- eval --smoke",
+        "./scripts/commands.sh run -- viz plot-metrics --smoke",
+        "./scripts/commands.sh verify -- --quick"
+      ],
+      "stop_after": false
+    }
+  ]
+}

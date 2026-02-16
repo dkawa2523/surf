@@ -1,0 +1,1358 @@
+{
+  "policy_lock": "1) Python: preflightでpython3優先自動検出しenv.shへ固定\n2) srcレイアウト: pip -e を試し、だめならPYTHONPATH=src\n3) SSOT: scripts/commands.shにrun/verifyを集約\n4) 依存追加: P0は禁止。P1のdecisionで有効化。\n5) 生成物: runs/ (gitignore)\n6) checkpoint: P0末尾のみ\n7) codex exec: --help解析しworkspace-write相当で実行\n8) MPLCONFIGDIR=/tmp をrun.shで設定",
+  "tasks": [
+    {
+      "task_id": "P0-001",
+      "phase": "P0",
+      "type": "implement",
+      "title": "Initialize minimal Python package skeleton (src layout) + CLI + verify",
+      "description": "Create pyproject.toml, src/wafer_surrogate package, minimal cli.py and verify.py, and a tiny configs/example.toml. Ensure scripts/commands.sh run/verify work.",
+      "acceptance_criteria": [
+        "Running `./scripts/commands.sh run -- --help` prints help and exits 0.",
+        "Running `./scripts/commands.sh verify -- --quick` exits 0 (even if optional deps are missing, it must degrade gracefully).",
+        "Project uses src layout and can be imported after preflight."
+      ],
+      "estimated_minutes": 90,
+      "scope_limits": {
+        "max_changed_files": 7,
+        "max_diff_lines": 350,
+        "allowed_dirs": [
+          "src/",
+          "configs/",
+          "tasks/",
+          "docs/",
+          "pyproject.toml"
+        ],
+        "forbidden_actions": [
+          "network_enable",
+          "dependency_add",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh",
+        "./scripts/commands.sh run -- --help",
+        "./scripts/commands.sh verify -- --quick"
+      ],
+      "stop_after": false
+    },
+    {
+      "task_id": "P0-002",
+      "phase": "P0",
+      "type": "implement",
+      "title": "Add modular registries: feature extractors, preprocess pipelines, models",
+      "description": "Add plugin-style registries for feature extraction and preprocessing and models so that multiple combinations can be evaluated later. Keep each module independently runnable.",
+      "acceptance_criteria": [
+        "Feature extractor registry exists and can list registered extractors.",
+        "Preprocess pipeline can compose steps in arbitrary order.",
+        "Model registry exists with at least a baseline model."
+      ],
+      "estimated_minutes": 90,
+      "scope_limits": {
+        "max_changed_files": 7,
+        "max_diff_lines": 350,
+        "allowed_dirs": [
+          "src/",
+          "docs/"
+        ],
+        "forbidden_actions": [
+          "network_enable",
+          "dependency_add",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh",
+        "./scripts/commands.sh verify -- --quick"
+      ],
+      "stop_after": false
+    },
+    {
+      "task_id": "P0-003",
+      "phase": "P0",
+      "type": "implement",
+      "title": "Implement synthetic dataset generator (time-series SDF) for smoke runs",
+      "description": "Implement data/synthetic.py producing small time-series SDF examples and a standard in-memory dataset object. Store an example under runs/ when invoked.",
+      "acceptance_criteria": [
+        "Can generate a small synthetic run with phi(t) sequence.",
+        "Synthetic generator does not require network or heavy deps."
+      ],
+      "estimated_minutes": 60,
+      "scope_limits": {
+        "max_changed_files": 5,
+        "max_diff_lines": 300,
+        "allowed_dirs": [
+          "src/",
+          "docs/"
+        ],
+        "forbidden_actions": [
+          "network_enable",
+          "dependency_add",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh",
+        "./scripts/commands.sh verify -- --quick"
+      ],
+      "stop_after": false
+    },
+    {
+      "task_id": "P0-004",
+      "phase": "P0",
+      "type": "implement",
+      "title": "Implement minimal SDF/level-set geometry utilities",
+      "description": "Implement geometry utilities needed for surrogate rollout: narrow-band extraction, finite-diff gradient, and a simple level-set update step. Keep numpy optional; skip gracefully if missing.",
+      "acceptance_criteria": [
+        "Geometry module exposes: extract_narrow_band, finite_diff_grad, levelset_step.",
+        "Unit-like checks exist in verify (skip if numpy missing)."
+      ],
+      "estimated_minutes": 90,
+      "scope_limits": {
+        "max_changed_files": 7,
+        "max_diff_lines": 350,
+        "allowed_dirs": [
+          "src/",
+          "docs/"
+        ],
+        "forbidden_actions": [
+          "network_enable",
+          "dependency_add",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh",
+        "./scripts/commands.sh verify -- --quick"
+      ],
+      "stop_after": false
+    },
+    {
+      "task_id": "P0-005",
+      "phase": "P0",
+      "type": "implement",
+      "title": "Implement baseline surrogate: predict Vn + rollout simulate",
+      "description": "Implement models/api.py and a baseline model that predicts Vn (e.g., constant or simple linear). Implement inference/simulate.py to roll out phi using level-set updates and produce time-series.",
+      "acceptance_criteria": [
+        "A baseline model can be instantiated via registry.",
+        "simulate(...) can produce a phi(t) sequence from phi0 and conditions."
+      ],
+      "estimated_minutes": 90,
+      "scope_limits": {
+        "max_changed_files": 7,
+        "max_diff_lines": 350,
+        "allowed_dirs": [
+          "src/",
+          "docs/"
+        ],
+        "forbidden_actions": [
+          "network_enable",
+          "dependency_add",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh",
+        "./scripts/commands.sh verify -- --quick"
+      ],
+      "stop_after": false
+    },
+    {
+      "task_id": "P0-006",
+      "phase": "P0",
+      "type": "implement",
+      "title": "CLI wiring: train/infer/eval pipeline + runs/ outputs",
+      "description": "Extend cli.py to provide subcommands train/infer/eval operating on synthetic data by default. Ensure outputs and summaries are written under runs/.",
+      "acceptance_criteria": [
+        "`./scripts/commands.sh run -- train --config configs/example.toml` runs end-to-end on synthetic.",
+        "`infer` produces output artifacts (json + optional plots) under runs/."
+      ],
+      "estimated_minutes": 90,
+      "scope_limits": {
+        "max_changed_files": 7,
+        "max_diff_lines": 350,
+        "allowed_dirs": [
+          "src/",
+          "configs/",
+          "docs/"
+        ],
+        "forbidden_actions": [
+          "network_enable",
+          "dependency_add",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh",
+        "./scripts/commands.sh run -- train --config configs/example.toml",
+        "./scripts/commands.sh verify -- --quick"
+      ],
+      "stop_after": false
+    },
+    {
+      "task_id": "P0-007",
+      "phase": "P0",
+      "type": "implement",
+      "title": "Implement metrics + summary reporting + OOD hook (minimal)",
+      "description": "Add multiple evaluation metrics (Vn error placeholder, SDF L1/L2, simple profile features) and a minimal in-domain/OOD distance-based check for inference.",
+      "acceptance_criteria": [
+        "Metrics module computes multiple metrics and prints/writes a summary json.",
+        "Inference includes an OOD hook (distance based) and reports status."
+      ],
+      "estimated_minutes": 90,
+      "scope_limits": {
+        "max_changed_files": 7,
+        "max_diff_lines": 350,
+        "allowed_dirs": [
+          "src/",
+          "docs/"
+        ],
+        "forbidden_actions": [
+          "network_enable",
+          "dependency_add",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh",
+        "./scripts/commands.sh verify -- --quick"
+      ],
+      "stop_after": false
+    },
+    {
+      "task_id": "P0-008",
+      "phase": "P0",
+      "type": "implement",
+      "title": "Traceability + docs alignment (requirements->tasks)",
+      "description": "Create docs/TRACEABILITY.md mapping every requirement ID in docs/REQUIREMENTS.md to one or more task IDs. Update docs/ARCHITECTURE.md or other docs if needed.",
+      "acceptance_criteria": [
+        "docs/TRACEABILITY.md exists and covers 100% requirements.",
+        "No orphan requirements and no orphan tasks."
+      ],
+      "estimated_minutes": 60,
+      "scope_limits": {
+        "max_changed_files": 5,
+        "max_diff_lines": 300,
+        "allowed_dirs": [
+          "docs/",
+          "tasks/"
+        ],
+        "forbidden_actions": [
+          "network_enable",
+          "dependency_add",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh",
+        "./scripts/commands.sh verify -- --quick"
+      ],
+      "stop_after": false
+    },
+    {
+      "task_id": "P0-009",
+      "phase": "P0",
+      "type": "review",
+      "title": "Consistency sweep: commands, package name, docs, tasks",
+      "description": "Review all tasks/docs/scripts to ensure there are no stale commands, old package names, or inconsistent paths. Fix only inconsistencies.",
+      "acceptance_criteria": [
+        "No occurrences of old package names or inconsistent commands.",
+        "All verification_commands reference scripts/commands.sh and match POLICY_LOCK."
+      ],
+      "estimated_minutes": 60,
+      "scope_limits": {
+        "max_changed_files": 7,
+        "max_diff_lines": 300,
+        "allowed_dirs": [
+          "docs/",
+          "tasks/",
+          "scripts/"
+        ],
+        "forbidden_actions": [
+          "network_enable",
+          "dependency_add",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh",
+        "./scripts/commands.sh verify -- --quick"
+      ],
+      "stop_after": false
+    },
+    {
+      "task_id": "P0-CHECKPOINT",
+      "phase": "P0",
+      "type": "checkpoint",
+      "title": "Checkpoint: P0 completed",
+      "description": "Summarize P0 state, ensure verify gates pass, and list next decisions for P1.",
+      "acceptance_criteria": [
+        "docs/TRACEABILITY.md still 100%.",
+        "docs/EVAL_PROTOCOL.md gates are correct."
+      ],
+      "estimated_minutes": 30,
+      "scope_limits": {
+        "max_changed_files": 5,
+        "max_diff_lines": 200,
+        "allowed_dirs": [
+          "docs/",
+          "tasks/"
+        ],
+        "forbidden_actions": [
+          "network_enable",
+          "dependency_add",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh",
+        "./scripts/commands.sh verify -- --quick"
+      ],
+      "stop_after": true
+    },
+    {
+      "task_id": "P0-VIZ-001",
+      "phase": "P0",
+      "type": "implement",
+      "title": "Add VTI/PVD time-series export (SDF/fields) + CLI (viz export-vti)",
+      "description": "実装後の時間ごとの出力を VTI(.vti) と PVD(.pvd) で保存し、ParaView 等で時系列可視化できるようにする。依存追加なしで動く ASCII VTI をまず実装し、将来拡張余地を残す。",
+      "acceptance_criteria": [
+        "`src/wafer_surrogate/viz/vti.py` に VTI(ASCII) と PVD を書き出すユーティリティを追加する（numpyがあれば利用、無くても最小動作）。",
+        "CLIに `viz export-vti` を追加する（入力: `--run-dir` または `--phi-npz`。出力: `runs/<run_id>/viz/vti/...`）。",
+        "`--smoke` オプションで合成データ（P0-003）から少数ステップのVTIを生成し、pvdも生成できる。",
+        "`docs/VIZ_SPEC.md` の仕様（shape, flatten order='F', extent, output layout）に従う。",
+        "既存のP0コマンド・run構造を壊さない。"
+      ],
+      "estimated_minutes": 90,
+      "scope_limits": {
+        "max_changed_files": 5,
+        "max_diff_lines": 350,
+        "allowed_dirs": [
+          "src/wafer_surrogate",
+          "docs",
+          "scripts"
+        ],
+        "forbidden_actions": [
+          "dependency_add",
+          "network_enable",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh",
+        "./scripts/commands.sh run -- viz --help",
+        "./scripts/commands.sh run -- viz export-vti --smoke",
+        "./scripts/commands.sh verify -- --quick"
+      ],
+      "stop_after": false
+    },
+    {
+      "task_id": "P0-VIZ-002",
+      "phase": "P0",
+      "type": "implement",
+      "title": "Add 3D quicklook visualization (slice PNGs) after SDF processing + CLI (viz render-slices)",
+      "description": "SDF/表面処理後の3Dデータを、XY/XZ/YZ 断面のクイックルック画像として出力できるようにする。可能なら φ=0 輪郭をオーバーレイする。ParaView向けにはP0-VIZ-001のVTIを併用。",
+      "acceptance_criteria": [
+        "`src/wafer_surrogate/viz/render.py`（または同等）を追加し、3D scalar field からスライスPNGを生成できる。",
+        "CLIに `viz render-slices` を追加する（入力: `--run-dir` / `--phi-npz` / `--vti-dir` のいずれか、出力: `runs/<run_id>/viz/png/slices/...`）。",
+        "デフォルトで中心断面（x=nx//2, y=ny//2, z=nz//2）をレンダリングし、CLIで断面位置を指定できる。",
+        "matplotlibが無い環境では、エラーで落としっぱなしにせず「VTI出力のみ」などの graceful fallback を提供する（最低限: コマンドが成功し、代替出力が残る）。"
+      ],
+      "estimated_minutes": 120,
+      "scope_limits": {
+        "max_changed_files": 5,
+        "max_diff_lines": 400,
+        "allowed_dirs": [
+          "src/wafer_surrogate",
+          "docs",
+          "scripts"
+        ],
+        "forbidden_actions": [
+          "dependency_add",
+          "network_enable",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh",
+        "./scripts/commands.sh run -- viz render-slices --smoke",
+        "./scripts/commands.sh verify -- --quick"
+      ],
+      "stop_after": false
+    },
+    {
+      "task_id": "P0-VIZ-003",
+      "phase": "P0",
+      "type": "implement",
+      "title": "Add validation/test cross-section contour overlay (pred vs gt) + eval integration",
+      "description": "Validation/Test で、横から見た断面（XZ面, y固定）の φ=0 輪郭を pred と gt で重ねた比較画像を出力する。評価時の第三者レビューを容易にする。",
+      "acceptance_criteria": [
+        "`src/wafer_surrogate/viz/compare_sections.py`（または同等）を追加し、pred/gt φ から断面輪郭比較PNGを生成できる。",
+        "デフォルト断面は XZ面（y=ny//2）。`--y-index` で指定可能。",
+        "`eval` コマンドにフックを追加し、val/test の先頭Nサンプル（例: N=3）について比較画像を `runs/<run_id>/viz/png/compare/` に出力する（オプションでOFF可能）。",
+        "matplotlibが無い環境では graceful fallback（少なくとも輪郭座標のjson出力等）を用意し、評価が完全停止しない。",
+        "既存の評価メトリクス計算を壊さない。"
+      ],
+      "estimated_minutes": 120,
+      "scope_limits": {
+        "max_changed_files": 5,
+        "max_diff_lines": 400,
+        "allowed_dirs": [
+          "src/wafer_surrogate",
+          "docs",
+          "scripts"
+        ],
+        "forbidden_actions": [
+          "dependency_add",
+          "network_enable",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh",
+        "./scripts/commands.sh run -- eval --smoke",
+        "./scripts/commands.sh run -- viz compare-sections --smoke",
+        "./scripts/commands.sh verify -- --quick"
+      ],
+      "stop_after": false
+    },
+    {
+      "task_id": "P0-VIZ-004",
+      "phase": "P0",
+      "type": "implement",
+      "title": "Add training/eval plots (loss/metrics curves + hist) + CLI (viz plot-metrics)",
+      "description": "学習ログと評価結果から、loss/metricsの推移や分布をプロットして `runs/<run_id>/viz/plots/` に保存する。マネージャー/第三者が run を理解しやすくする。",
+      "acceptance_criteria": [
+        "`src/wafer_surrogate/viz/plots.py`（または同等）を追加し、run_dir 内の metrics ログ（jsonl/csv等）を探索してプロット生成できる。",
+        "CLIに `viz plot-metrics` を追加する（入力: `--run-dir`、出力: `runs/<run_id>/viz/plots/...`）。",
+        "可能なら `eval` 実行後に自動で `plot-metrics` を呼び、同じ run_dir に図を残す（オプションでOFF可）。",
+        "matplotlibが無い場合でも graceful fallback（csv summary だけは生成など）を用意する。",
+        "生成物は `runs/` 配下に集約し、.gitignore方針に従う。"
+      ],
+      "estimated_minutes": 120,
+      "scope_limits": {
+        "max_changed_files": 5,
+        "max_diff_lines": 400,
+        "allowed_dirs": [
+          "src/wafer_surrogate",
+          "docs",
+          "scripts"
+        ],
+        "forbidden_actions": [
+          "dependency_add",
+          "network_enable",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh",
+        "./scripts/commands.sh run -- train --smoke",
+        "./scripts/commands.sh run -- eval --smoke",
+        "./scripts/commands.sh run -- viz plot-metrics --smoke",
+        "./scripts/commands.sh verify -- --quick"
+      ],
+      "stop_after": false
+    },
+    {
+      "task_id": "P0-010",
+      "phase": "P0",
+      "type": "implement",
+      "title": "Implement batch inference + minimal recipe random search + pipeline combo sweep",
+      "description": "Implement (a) batch inference for multiple conditions with summary reporting, (b) minimal recipe search via random search using the surrogate, and (c) pipeline combination sweep to compare multiple (feature_extractor, preprocess_pipeline, model) combos. Must write artifacts under runs/ and require no new dependencies (numpy optional; skip gracefully if missing). Integrate via CLI subcommands or flags without breaking existing commands.",
+      "acceptance_criteria": [
+        "CLI can run inference for multiple conditions (batch) and writes a summary json/csv under runs/.",
+        "A minimal random-search optimizer can search recipes using the surrogate and reports best candidate + objective history under runs/.",
+        "A pipeline sweep can evaluate at least 2 feature extractors × 2 preprocess pipelines × 1 model on synthetic data and produce a comparison table under runs/."
+      ],
+      "estimated_minutes": 120,
+      "scope_limits": {
+        "max_changed_files": 7,
+        "max_diff_lines": 400,
+        "allowed_dirs": [
+          "src/",
+          "configs/",
+          "docs/"
+        ],
+        "forbidden_actions": [
+          "network_enable",
+          "dependency_add",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh",
+        "./scripts/commands.sh verify -- --quick"
+      ],
+      "stop_after": false
+    },
+    {
+      "task_id": "DECISION-P1-001",
+      "phase": "P1",
+      "type": "decision",
+      "title": "Decide constraints and dependency policy for P1/P2",
+      "description": "Decide: (a) existing repo vs new repo, (b) network/pip allowed, (c) dependency additions allowed, (d) GPU requirement/availability. Record decision in docs/adr and update docs/GAPS.md.",
+      "acceptance_criteria": [
+        "docs/adr/0002-constraints.md (or similar) records the decision.",
+        "docs/GAPS.md updated with resolved items and remaining TBD.",
+        "tasks that require deps are gated behind the decision."
+      ],
+      "estimated_minutes": 60,
+      "scope_limits": {
+        "max_changed_files": 7,
+        "max_diff_lines": 250,
+        "allowed_dirs": [
+          "docs/",
+          "tasks/",
+          "config/"
+        ],
+        "forbidden_actions": [
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh"
+      ],
+      "stop_after": true
+    },
+    {
+      "task_id": "P1-002",
+      "depends_on": [
+        "DECISION-P1-001"
+      ],
+      "phase": "P1",
+      "type": "implement",
+      "title": "Define and implement HDF5/Zarr dataset schema for narrow-band SDF",
+      "description": "Implement data/io.py adapters and writers/readers for the agreed narrow-band schema: run/meta + step/coords+feat+vn_target (+priv optional). Keep h5py/zarr optional or gated by decision.",
+      "acceptance_criteria": [
+        "Dataset schema is documented in docs/CONTEXT.md and enforced by code.",
+        "Reader/writer round-trip works on synthetic small data."
+      ],
+      "estimated_minutes": 120,
+      "scope_limits": {
+        "max_changed_files": 7,
+        "max_diff_lines": 400,
+        "allowed_dirs": [
+          "src/",
+          "docs/"
+        ],
+        "forbidden_actions": [
+          "network_enable",
+          "dependency_add",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh",
+        "./scripts/commands.sh verify -- --quick"
+      ],
+      "stop_after": false
+    },
+    {
+      "task_id": "P1-003",
+      "phase": "P1",
+      "type": "implement",
+      "title": "Implement Vn pseudo-label generation from phi_t and phi_{t+1}",
+      "description": "Implement training target generation: vn_target ≈ (phi_t - phi_{t+1})/(dt*|grad phi_t|) on narrow band, with masking for stability.",
+      "acceptance_criteria": [
+        "Given consecutive phi snapshots, vn_target is generated and saved.",
+        "Stability masks are applied (small grad -> masked)."
+      ],
+      "estimated_minutes": 90,
+      "scope_limits": {
+        "max_changed_files": 5,
+        "max_diff_lines": 300,
+        "allowed_dirs": [
+          "src/",
+          "docs/"
+        ],
+        "forbidden_actions": [
+          "network_enable",
+          "dependency_add",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh",
+        "./scripts/commands.sh verify -- --quick"
+      ],
+      "stop_after": false
+    },
+    {
+      "task_id": "P1-004",
+      "phase": "P1",
+      "type": "implement",
+      "title": "SEM feature I/O + latent z calibration (MAP)",
+      "description": "Implement data/sem.py to load SEM-derived features; implement inference/calibrate.py for MAP calibration of latent z by minimizing feature mismatch while freezing surrogate weights.",
+      "acceptance_criteria": [
+        "SEM feature vector y is loaded from a simple json/csv.",
+        "MAP calibration can optimize z for a synthetic target y."
+      ],
+      "estimated_minutes": 120,
+      "scope_limits": {
+        "max_changed_files": 7,
+        "max_diff_lines": 400,
+        "allowed_dirs": [
+          "src/",
+          "docs/"
+        ],
+        "forbidden_actions": [
+          "network_enable",
+          "dependency_add",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh",
+        "./scripts/commands.sh verify -- --quick"
+      ],
+      "stop_after": false
+    },
+    {
+      "task_id": "DECISION-P1-002",
+      "depends_on": [
+        "DECISION-P1-001"
+      ],
+      "phase": "P1",
+      "type": "decision",
+      "title": "Decide YAML adoption policy and config compatibility",
+      "description": "Decide YAML policy (parser choice, optional dependency behavior, TOML compatibility, migration rule) before broad pipeline rollout.",
+      "acceptance_criteria": [
+        "ADR is added under docs/adr/ and decision is explicit.",
+        "docs/GAPS.md is updated with resolved/remaining config-format gaps.",
+        "tasks that require YAML-first behavior are gated by this decision."
+      ],
+      "estimated_minutes": 60,
+      "scope_limits": {
+        "max_changed_files": 6,
+        "max_diff_lines": 260,
+        "allowed_dirs": [
+          "docs/",
+          "tasks/",
+          "configs/",
+          "src/"
+        ],
+        "forbidden_actions": [
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh"
+      ],
+      "stop_after": true
+    },
+    {
+      "task_id": "P1-005",
+      "depends_on": [
+        "DECISION-P1-002"
+      ],
+      "phase": "P1",
+      "type": "implement",
+      "title": "Pipeline common types + manifest + stage output layout",
+      "description": "Introduce pipeline common types (StageConfig/StageResult/PipelineManifest/ArtifactRef/LeaderboardRecord/ReconstructionBundle), orchestrator, and standard stage output layout under runs/<run_id>/<stage>/{configuration,logs,outputs}.",
+      "acceptance_criteria": [
+        "Pipeline orchestrator can run selected stages and write manifest.json.",
+        "Each stage writes configuration/logs/outputs subdirectories.",
+        "Manifest stores stage status and artifacts."
+      ],
+      "estimated_minutes": 120,
+      "scope_limits": {
+        "max_changed_files": 7,
+        "max_diff_lines": 400,
+        "allowed_dirs": [
+          "src/",
+          "docs/",
+          "configs/"
+        ],
+        "forbidden_actions": [
+          "network_enable",
+          "dependency_add",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh",
+        "./scripts/commands.sh run -- pipeline run --config configs/example.toml --stages cleaning,featurization,preprocessing,train,inference",
+        "./scripts/commands.sh verify -- --quick"
+      ],
+      "stop_after": false
+    },
+    {
+      "task_id": "P1-006",
+      "depends_on": [
+        "P1-005"
+      ],
+      "phase": "P1",
+      "type": "implement",
+      "title": "Implement Data Cleaning stage",
+      "description": "Implement configurable cleaning stage for duplicates/missing/recipe normalization with quality report output and optional skip behavior.",
+      "acceptance_criteria": [
+        "Cleaning stage can run standalone and write cleaning report.",
+        "Pipeline can skip cleaning stage and still run."
+      ],
+      "estimated_minutes": 90,
+      "scope_limits": {
+        "max_changed_files": 6,
+        "max_diff_lines": 340,
+        "allowed_dirs": [
+          "src/",
+          "docs/",
+          "configs/"
+        ],
+        "forbidden_actions": [
+          "network_enable",
+          "dependency_add",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh",
+        "./scripts/commands.sh run -- pipeline run --config configs/example.toml --stages cleaning",
+        "./scripts/commands.sh verify -- --quick"
+      ],
+      "stop_after": false
+    },
+    {
+      "task_id": "P1-007",
+      "depends_on": [
+        "P1-005",
+        "DECISION-P1-004",
+        "DECISION-P1-005"
+      ],
+      "phase": "P1",
+      "type": "implement",
+      "title": "Implement Featurization stage with reconstruction bundle",
+      "description": "Implement featurization stage for recipe/SDF/time-series features and output reconstruction bundle for inverse mapping and post-inference reconstruction hooks.",
+      "acceptance_criteria": [
+        "Featurization stage outputs features + targets + reconstruction bundle.",
+        "Stage can run with cleaned or raw dataset input."
+      ],
+      "estimated_minutes": 90,
+      "scope_limits": {
+        "max_changed_files": 6,
+        "max_diff_lines": 360,
+        "allowed_dirs": [
+          "src/",
+          "docs/",
+          "configs/"
+        ],
+        "forbidden_actions": [
+          "network_enable",
+          "dependency_add",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh",
+        "./scripts/commands.sh run -- pipeline run --config configs/example.toml --stages cleaning,featurization",
+        "./scripts/commands.sh verify -- --quick"
+      ],
+      "stop_after": false
+    },
+    {
+      "task_id": "P1-008",
+      "depends_on": [
+        "P1-005",
+        "DECISION-P1-004"
+      ],
+      "phase": "P1",
+      "type": "implement",
+      "title": "Implement Preprocessing stage with inverse metadata",
+      "description": "Implement preprocessing stage for step pipelines, normalization, and inverse metadata persistence for reconstruction/evaluation.",
+      "acceptance_criteria": [
+        "Preprocessing stage writes processed features/targets and inverse metadata.",
+        "Stage can run independently when feature artifacts are available."
+      ],
+      "estimated_minutes": 90,
+      "scope_limits": {
+        "max_changed_files": 6,
+        "max_diff_lines": 360,
+        "allowed_dirs": [
+          "src/",
+          "docs/",
+          "configs/"
+        ],
+        "forbidden_actions": [
+          "network_enable",
+          "dependency_add",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh",
+        "./scripts/commands.sh run -- pipeline run --config configs/example.toml --stages cleaning,featurization,preprocessing",
+        "./scripts/commands.sh verify -- --quick"
+      ],
+      "stop_after": false
+    },
+    {
+      "task_id": "P1-009",
+      "depends_on": [
+        "P1-005",
+        "DECISION-P1-004",
+        "DECISION-P1-005"
+      ],
+      "phase": "P1",
+      "type": "implement",
+      "title": "Implement Train stage with model comparison output",
+      "description": "Implement train stage with train/CV-friendly metric outputs and model variant comparison table for leaderboard integration.",
+      "acceptance_criteria": [
+        "Train stage writes model_state and model comparison table.",
+        "At least one model variant is selected as best model."
+      ],
+      "estimated_minutes": 120,
+      "scope_limits": {
+        "max_changed_files": 7,
+        "max_diff_lines": 400,
+        "allowed_dirs": [
+          "src/",
+          "docs/",
+          "configs/"
+        ],
+        "forbidden_actions": [
+          "network_enable",
+          "dependency_add",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh",
+        "./scripts/commands.sh run -- pipeline run --config configs/example.toml --stages cleaning,featurization,preprocessing,train",
+        "./scripts/commands.sh verify -- --quick"
+      ],
+      "stop_after": false
+    },
+    {
+      "task_id": "P1-010",
+      "depends_on": [
+        "P1-005",
+        "DECISION-P1-004",
+        "DECISION-P1-005",
+        "DECISION-P1-006"
+      ],
+      "phase": "P1",
+      "type": "implement",
+      "title": "Implement Inference stage (single/batch/optimize) + OOD",
+      "description": "Implement inference stage modes (single, batch, optimize) with OOD reporting, artifact export, and fallback random/grid optimization path.",
+      "acceptance_criteria": [
+        "Single/batch/optimize modes can be selected from config.",
+        "OOD report is written for inference outputs.",
+        "Optimization history is written in csv/json."
+      ],
+      "estimated_minutes": 120,
+      "scope_limits": {
+        "max_changed_files": 7,
+        "max_diff_lines": 400,
+        "allowed_dirs": [
+          "src/",
+          "docs/",
+          "configs/"
+        ],
+        "forbidden_actions": [
+          "network_enable",
+          "dependency_add",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh",
+        "./scripts/commands.sh run -- pipeline run --config configs/example.toml --stages cleaning,featurization,preprocessing,train,inference",
+        "./scripts/commands.sh verify -- --quick"
+      ],
+      "stop_after": false
+    },
+    {
+      "task_id": "P1-011",
+      "depends_on": [
+        "P1-009",
+        "P1-010"
+      ],
+      "phase": "P1",
+      "type": "implement",
+      "title": "Implement leaderboard aggregation (data_path/model_path)",
+      "description": "Add standardized leaderboard outputs under runs/<run_id>/leaderboard for data-path and model-path comparisons.",
+      "acceptance_criteria": [
+        "leaderboard/data_path/leaderboard.csv is generated.",
+        "leaderboard/model_path/leaderboard.csv is generated."
+      ],
+      "estimated_minutes": 90,
+      "scope_limits": {
+        "max_changed_files": 5,
+        "max_diff_lines": 300,
+        "allowed_dirs": [
+          "src/",
+          "docs/",
+          "configs/"
+        ],
+        "forbidden_actions": [
+          "network_enable",
+          "dependency_add",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh",
+        "./scripts/commands.sh run -- pipeline run --config configs/example.toml --stages cleaning,featurization,preprocessing,train,inference",
+        "./scripts/commands.sh verify -- --quick"
+      ],
+      "stop_after": false
+    },
+    {
+      "task_id": "P1-012",
+      "depends_on": [
+        "P1-005"
+      ],
+      "phase": "P1",
+      "type": "implement",
+      "title": "CLI integration for pipeline command while keeping compatibility",
+      "description": "Add CLI pipeline subcommand wiring and keep existing train/infer/eval/infer-batch/search-recipe/sweep-pipelines/viz compatibility.",
+      "acceptance_criteria": [
+        "`wafer-surrogate pipeline run` is available from CLI help.",
+        "Legacy CLI commands continue to work."
+      ],
+      "estimated_minutes": 90,
+      "scope_limits": {
+        "max_changed_files": 6,
+        "max_diff_lines": 300,
+        "allowed_dirs": [
+          "src/",
+          "docs/"
+        ],
+        "forbidden_actions": [
+          "network_enable",
+          "dependency_add",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh",
+        "./scripts/commands.sh run -- --help",
+        "./scripts/commands.sh run -- pipeline run --config configs/example.toml",
+        "./scripts/commands.sh verify -- --quick"
+      ],
+      "stop_after": false
+    },
+    {
+      "task_id": "P1-013",
+      "depends_on": [
+        "P1-005"
+      ],
+      "phase": "P1",
+      "type": "implement",
+      "title": "Verification split and regression extension for pipeline",
+      "description": "Extend verification checks for stage workflow and keep optional dependency behavior graceful.",
+      "acceptance_criteria": [
+        "verify includes pipeline workflow checks.",
+        "verify --quick remains green in minimal environment."
+      ],
+      "estimated_minutes": 90,
+      "scope_limits": {
+        "max_changed_files": 6,
+        "max_diff_lines": 320,
+        "allowed_dirs": [
+          "src/",
+          "docs/",
+          "scripts/"
+        ],
+        "forbidden_actions": [
+          "network_enable",
+          "dependency_add",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh",
+        "./scripts/commands.sh verify -- --quick"
+      ],
+      "stop_after": false
+    },
+    {
+      "task_id": "P1-014",
+      "phase": "P1",
+      "type": "implement",
+      "title": "Remove unnecessary generated files and consolidate duplicated helpers",
+      "description": "Clean repository artifacts (__pycache__, *.pyc, AppleDouble files, stale backups) and consolidate duplicated helper logic where feasible.",
+      "acceptance_criteria": [
+        "No tracked generated cache artifacts remain in source tree.",
+        "Duplicate helper functions are reduced with shared utility modules."
+      ],
+      "estimated_minutes": 60,
+      "scope_limits": {
+        "max_changed_files": 6,
+        "max_diff_lines": 240,
+        "allowed_dirs": [
+          "src/",
+          "docs/",
+          "tasks/"
+        ],
+        "forbidden_actions": [
+          "network_enable",
+          "dependency_add",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh",
+        "./scripts/commands.sh verify -- --quick"
+      ],
+      "stop_after": false
+    },
+    {
+      "task_id": "DECISION-P1-003",
+      "depends_on": [
+        "DECISION-P1-001"
+      ],
+      "phase": "P1",
+      "type": "decision",
+      "title": "Decide optimization engine policy (random/grid only vs optional external optimizer)",
+      "description": "Decide whether to keep optimize mode on built-in random/grid only or enable optional external optimizers. Record dependency and fallback policy.",
+      "acceptance_criteria": [
+        "ADR documents optimization engine policy and fallback behavior.",
+        "tasks using optional optimizers reference this decision."
+      ],
+      "estimated_minutes": 60,
+      "scope_limits": {
+        "max_changed_files": 5,
+        "max_diff_lines": 220,
+        "allowed_dirs": [
+          "docs/",
+          "tasks/",
+          "src/"
+        ],
+        "forbidden_actions": [
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh"
+      ],
+      "stop_after": true
+    },
+    {
+      "task_id": "DECISION-P1-004",
+      "depends_on": [
+        "DECISION-P1-001"
+      ],
+      "phase": "P1",
+      "type": "decision",
+      "title": "Decide physical unit system and dt semantics for SDF/Vn pipeline",
+      "description": "Decide canonical unit system (nm/voxel) and dt semantics (physical time vs progress step). Record conversion rules and default assumptions for featurization/train/inference.",
+      "acceptance_criteria": [
+        "ADR documents unit system and dt semantics with explicit defaults.",
+        "docs/GAPS.md no longer lists unit/dt as unresolved.",
+        "tasks depending on featurization/train/inference reference this decision."
+      ],
+      "estimated_minutes": 60,
+      "scope_limits": {
+        "max_changed_files": 6,
+        "max_diff_lines": 260,
+        "allowed_dirs": [
+          "docs/",
+          "tasks/",
+          "configs/",
+          "src/"
+        ],
+        "forbidden_actions": [
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh"
+      ],
+      "stop_after": true
+    },
+    {
+      "task_id": "DECISION-P1-005",
+      "depends_on": [
+        "DECISION-P1-001"
+      ],
+      "phase": "P1",
+      "type": "decision",
+      "title": "Decide material label taxonomy and encoding policy",
+      "description": "Decide material label taxonomy, canonical IDs, and encoding policy used by dataset schema and model inputs.",
+      "acceptance_criteria": [
+        "ADR documents material labels and encoding policy.",
+        "docs/GAPS.md no longer lists material labels as unresolved.",
+        "tasks depending on feature/preprocess/train reference this decision."
+      ],
+      "estimated_minutes": 60,
+      "scope_limits": {
+        "max_changed_files": 6,
+        "max_diff_lines": 240,
+        "allowed_dirs": [
+          "docs/",
+          "tasks/",
+          "configs/",
+          "src/"
+        ],
+        "forbidden_actions": [
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh"
+      ],
+      "stop_after": true
+    },
+    {
+      "task_id": "DECISION-P1-006",
+      "depends_on": [
+        "DECISION-P1-001"
+      ],
+      "phase": "P1",
+      "type": "decision",
+      "title": "Decide SEM observation modality contract (cross-section/top-view/multi-view)",
+      "description": "Decide which SEM observation modality (cross-section, top-view, multi-view) is canonical and how observation features are represented for calibration and evaluation.",
+      "acceptance_criteria": [
+        "ADR documents SEM observation modality contract and feature schema.",
+        "docs/GAPS.md no longer lists SEM modality as unresolved.",
+        "tasks depending on inference calibration reference this decision."
+      ],
+      "estimated_minutes": 60,
+      "scope_limits": {
+        "max_changed_files": 6,
+        "max_diff_lines": 240,
+        "allowed_dirs": [
+          "docs/",
+          "tasks/",
+          "configs/",
+          "src/"
+        ],
+        "forbidden_actions": [
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh"
+      ],
+      "stop_after": true
+    },
+    {
+      "task_id": "P2-001",
+      "depends_on": [
+        "DECISION-P1-001"
+      ],
+      "phase": "P2",
+      "type": "implement",
+      "title": "Teacher-Student distillation with privileged simulation logs (optional)",
+      "description": "Add teacher-student training where teacher sees privileged sim logs (flux histograms, reflect contributions) and student does not; distill outputs and/or embeddings.",
+      "acceptance_criteria": [
+        "Teacher and student models can be trained and compared on a small dataset."
+      ],
+      "estimated_minutes": 120,
+      "scope_limits": {
+        "max_changed_files": 7,
+        "max_diff_lines": 400,
+        "allowed_dirs": [
+          "src/",
+          "docs/"
+        ],
+        "forbidden_actions": [
+          "network_enable",
+          "dependency_add",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh",
+        "./scripts/commands.sh verify -- --quick"
+      ],
+      "stop_after": false
+    },
+    {
+      "task_id": "P2-002",
+      "depends_on": [
+        "DECISION-P1-001"
+      ],
+      "phase": "P2",
+      "type": "implement",
+      "title": "Surface graph model (non-local coupling) + SDF projection (optional)",
+      "description": "Implement a surface-based model (point cloud/mesh) that predicts Vn with non-local edges (visibility/reflection proxy), then projects back to SDF for level-set updates.",
+      "acceptance_criteria": [
+        "Surface model can run on synthetic geometry and produce plausible Vn."
+      ],
+      "estimated_minutes": 120,
+      "scope_limits": {
+        "max_changed_files": 7,
+        "max_diff_lines": 400,
+        "allowed_dirs": [
+          "src/",
+          "docs/"
+        ],
+        "forbidden_actions": [
+          "network_enable",
+          "dependency_add",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh",
+        "./scripts/commands.sh verify -- --quick"
+      ],
+      "stop_after": false
+    },
+    {
+      "task_id": "P2-003",
+      "depends_on": [
+        "DECISION-P1-001"
+      ],
+      "phase": "P2",
+      "type": "implement",
+      "title": "Neural-operator baseline (phi0,c,t -> phi(t)) (optional)",
+      "description": "Add a baseline operator-learning model for direct time-conditioned prediction. Keep behind dependency decision.",
+      "acceptance_criteria": [
+        "Operator baseline trains on synthetic and can query arbitrary t."
+      ],
+      "estimated_minutes": 120,
+      "scope_limits": {
+        "max_changed_files": 7,
+        "max_diff_lines": 400,
+        "allowed_dirs": [
+          "src/",
+          "docs/"
+        ],
+        "forbidden_actions": [
+          "network_enable",
+          "dependency_add",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh"
+      ],
+      "stop_after": false
+    },
+    {
+      "task_id": "P2-004",
+      "depends_on": [
+        "DECISION-P1-001"
+      ],
+      "phase": "P2",
+      "type": "implement",
+      "title": "SBI posterior estimation for latent z (optional)",
+      "description": "Integrate SBI workflow for posterior p(z|y,c,geom). Must be gated behind dependency decision.",
+      "acceptance_criteria": [
+        "Can train a posterior estimator on synthetic pairs and sample z."
+      ],
+      "estimated_minutes": 120,
+      "scope_limits": {
+        "max_changed_files": 7,
+        "max_diff_lines": 400,
+        "allowed_dirs": [
+          "src/",
+          "docs/"
+        ],
+        "forbidden_actions": [
+          "network_enable",
+          "dependency_add",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh"
+      ],
+      "stop_after": false
+    },
+    {
+      "task_id": "P2-005",
+      "depends_on": [
+        "DECISION-P1-001"
+      ],
+      "phase": "P2",
+      "type": "implement",
+      "title": "Recipe search (BO/MFBO) (optional)",
+      "description": "Add optimization module for recipe search using surrogate. P0 has random search; this task adds BO/MFBO if deps allowed.",
+      "acceptance_criteria": [
+        "Can run a toy optimization loop and report best recipe and summary."
+      ],
+      "estimated_minutes": 120,
+      "scope_limits": {
+        "max_changed_files": 7,
+        "max_diff_lines": 400,
+        "allowed_dirs": [
+          "src/",
+          "docs/"
+        ],
+        "forbidden_actions": [
+          "network_enable",
+          "dependency_add",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh"
+      ],
+      "stop_after": false
+    },
+    {
+      "task_id": "P2-006",
+      "depends_on": [
+        "DECISION-P1-002"
+      ],
+      "phase": "P2",
+      "type": "implement",
+      "title": "Add observation model interface stub (SDF→SEM feature projection) for future differentiable rendering",
+      "description": "Add src/wafer_surrogate/observation/ module with a minimal ObservationModel interface and a non-differentiable baseline projection from SDF to simple 2D/1D features. No new dependencies. Document how to extend to differentiable rendering later.",
+      "acceptance_criteria": [
+        "ObservationModel interface exists with clear I/O contract (shape state → observable features).",
+        "A baseline implementation produces deterministic features used by calibration/eval.",
+        "Docs updated (brief) describing extension points for differentiable rendering."
+      ],
+      "estimated_minutes": 60,
+      "scope_limits": {
+        "max_changed_files": 5,
+        "max_diff_lines": 300,
+        "allowed_dirs": [
+          "src",
+          "docs",
+          "configs"
+        ],
+        "forbidden_actions": [
+          "network_enable",
+          "dependency_add",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh",
+        "./scripts/commands.sh verify -- --quick"
+      ],
+      "stop_after": false
+    },
+    {
+      "task_id": "P2-007",
+      "depends_on": [
+        "DECISION-P1-002"
+      ],
+      "phase": "P2",
+      "type": "implement",
+      "title": "Add generative prior interface stub (shape prior) for future diffusion/score models",
+      "description": "Add src/wafer_surrogate/prior/ module with a ShapePrior interface and a trivial baseline prior (e.g., Gaussian prior on latent). No new dependencies. Document how diffusion/score priors would plug in.",
+      "acceptance_criteria": [
+        "ShapePrior interface exists with sampling/scoring hooks.",
+        "Baseline prior works without extra deps and is wired into config/loader.",
+        "Docs updated describing how diffusion/score models would integrate."
+      ],
+      "estimated_minutes": 60,
+      "scope_limits": {
+        "max_changed_files": 5,
+        "max_diff_lines": 300,
+        "allowed_dirs": [
+          "src",
+          "docs",
+          "configs"
+        ],
+        "forbidden_actions": [
+          "network_enable",
+          "dependency_add",
+          "mass_refactor"
+        ]
+      },
+      "verification_commands": [
+        "./scripts/preflight.sh",
+        "./scripts/commands.sh verify -- --quick"
+      ],
+      "stop_after": false
+    }
+  ],
+  "policy_lock_text": "1) Python: preflightでpython3優先自動検出しenv.shへ固定\n2) srcレイアウト: pip -e を試し、だめならPYTHONPATH=src\n3) SSOT: scripts/commands.shにrun/verifyを集約\n4) 依存追加: P0は禁止。P1のdecisionで有効化。\n5) 生成物: runs/ (gitignore)\n6) checkpoint: P0末尾のみ\n7) codex exec: --help解析しworkspace-write相当で実行\n8) MPLCONFIGDIR=/tmp をrun.shで設定"
+}

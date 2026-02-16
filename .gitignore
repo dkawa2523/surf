@@ -1,0 +1,21 @@
+# outputs
+runs/
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+*.egg-info/
+
+# virtualenv
+.venv/
+.venv_torchmd_tmp/
+venv/
+
+# editor
+.vscode/
+.DS_Store
+._*
+*.bak.*

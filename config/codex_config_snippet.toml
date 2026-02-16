@@ -1,0 +1,16 @@
+# Codex CLI config snippet (example)
+# NOTE: codex CLI の設定フォーマットはバージョンにより異なる可能性があります。
+# このファイルは「意図」を共有するためのスニペットです。
+
+[model]
+name = "gpt-5.3-codex"
+reasoning = "high"
+
+[execution]
+# autorun は workspace-write 相当のフラグを検出して付与します
+default_write_mode = true
+
+[policy]
+# 大きな変更は decision で停止してから進める
+stop_on_decision = true
+stop_on_checkpoint = true

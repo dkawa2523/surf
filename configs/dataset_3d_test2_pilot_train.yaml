@@ -1,0 +1,86 @@
+# dataset_3d_test2 の pilot 学習用設定（pipeline train 専用）
+# このファイルで「学習設定」を編集します。
+# 実行全体（prepare/eval/mesh）は configs/dataset_3d_test2_train_eval.yaml 側で制御します。
+
+project:
+  name: dataset-3d-test2-pilot
+
+run:
+  mode: train
+  output_dir: runs
+  # 学習runの出力先: runs/<run_id>/
+  run_id: dataset_3d_test2_pilot_quick
+
+pipeline:
+  # pilotでは train stage のみ実行（前段は外付けprepareで生成）
+  stages: [train]
+  external_inputs:
+    train:
+      # prepareスクリプトが出力する narrow-band 学習データ
+      narrow_band_h5: runs/dataset_3d_test2_pilot/prepared/train_narrow_band.h5
+      # 学習/推論の特徴契約（列名・次元・順序）を保証
+      feature_contract_json: runs/dataset_3d_test2_pilot/prepared/feature_contract.json
+      point_level_manifest_json: runs/dataset_3d_test2_pilot/prepared/point_level_manifest.json
+
+train:
+  # 学習モード:
+  # - sparse_distill: sparse student/teacher 経路（依存不足時は fallback）
+  # - tabular: 表形式モデル
+  mode: sparse_distill
+
+  # run分割リーク防止:
+  # true で valid run が作れない場合は fail
+  strict_split: true
+
+  # 乱数seed（再現性）
+  seed: 42
+  device: cpu
+
+  # 学習エポック
+  teacher_epochs: 4
+  student_epochs: 6
+
+  # 1回で処理する step 数（小さくするとメモリは軽い）
+  batch_size_steps: 4
+  # 1 step あたりの最大点数
+  sparse_batch_points: 12000
+
+  # 最適化設定
+  learning_rate: 0.001
+  weight_decay: 1.0e-6
+
+  # 蒸留重み（合計比率）
+  # L = alpha*target + beta*teacher + gamma*feature
+  distill_alpha: 0.5
+  distill_beta: 0.2
+  distill_gamma: 0.1
+
+  # 安定化
+  grad_clip_norm: 5.0
+  early_stopping_patience: 2
+  # none | cosine
+  lr_scheduler: none
+
+  # 時間方向学習強化
+  rollout_loss_enabled: true
+  rollout_k: 3
+  rollout_weight: 0.1
+  # uniform | early_decay
+  temporal_step_weight: early_decay
+  # uniform | early_bias
+  step_sampling_policy: early_bias
+
+  # small | base | large
+  sparse_model_profile: small
+
+  # optional依存不足時に使うフォールバックモデル
+  fallback_model: baseline_vn_linear_trainable
+
+# 可視化トグル（未指定時は visualization.default.yaml の既定ONを使用）
+visualization:
+  defaults:
+    enabled: true
+  train:
+    learning_curves: true
+    scatter_gt_pred: true
+    r2: true

@@ -1,0 +1,15 @@
+You are implementing ONE task in an automated Codex CLI run.
+
+HARD RULES (must follow):
+- Follow POLICY_LOCK exactly.
+- Do NOT invent new project specifications. If anything is unclear or missing, write it to docs/GAPS.md and create/trigger a decision task (do not guess).
+- Respect scope_limits: do not change more files/lines than allowed; do not touch disallowed dirs.
+- Do not enable network access or add dependencies unless explicitly allowed by the task (and POLICY_LOCK).
+- After edits, run ALL verification commands locally.
+- Update docs/TRACEABILITY.md if you add/change requirements or tasks.
+
+Deliverable:
+- Make the minimal set of changes to satisfy acceptance criteria.
+- Keep code readable and modular (easy to add feature extractors / preprocess / models later).
+
+{{TASK_BODY}}

@@ -1,0 +1,12 @@
+You are running a DECISION task.
+
+Goals:
+- Identify what must be decided and why it blocks implementation.
+- Propose SAFE options (A/B/C), each with pros/cons.
+- Update docs/GAPS.md and (if needed) add an ADR draft under docs/adr.
+
+Hard rules:
+- Do NOT implement large code changes.
+- End by clearly stating what input is needed from the user.
+
+{{TASK_BODY}}

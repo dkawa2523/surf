@@ -1,0 +1,86 @@
+# dataset_3d_test2 実行全体設定（prepare -> train -> holdout eval -> compare）
+# 目的:
+# - SDF生成/学習/評価の主要パラメータを1ファイルで編集できるようにする
+# - src変更なしで pilot 評価を再現する
+
+schema_version: 1
+
+paths:
+  # 入力データルート（実体: ataset_3d_test2）
+  data_dir: ataset_3d_test2
+  # 出力ルート（prepare/eval比較などを保存）
+  out_root: runs/dataset_3d_test2_pilot
+  # 学習設定ファイル（train stage設定）
+  train_config: configs/dataset_3d_test2_pilot_train.yaml
+  # 可視化設定ファイル（既定ON）
+  viz_config: configs/visualization.default.yaml
+  # ゲート比較の基準JSON（任意）
+  baseline_eval_json: runs/dataset_3d_test2_pilot_h0006/eval/quick/holdout_eval.json
+
+split:
+  # 学習に使う run 一覧
+  train_runs:
+    - run_0000
+    - run_0001
+    - run_0002
+    - run_0003
+    - run_0004
+    - run_0005
+    - run_0006
+    - run_0007
+    - run_0008
+    - run_0009
+    - run_0010
+    - run_0011
+  # 主評価 holdout（ゲート判定に使用）
+  primary_holdout_run: run_0006
+  # 追認 holdout（ゲート通過時のみ）
+  secondary_holdout_run: run_0012
+
+prepare:
+  # VTIファイル探索パターン
+  vti_pattern: vox_t*.vti
+  # narrow-band 幅（大きいほど点数増）
+  band_width: 2.0
+  # Vn教師計算での最小勾配
+  min_grad_norm: 1.0e-8
+  # ValidMask配列名
+  valid_mask_array: ValidMask
+
+  # ターゲット材（nullで自動選択）
+  target_material_id: null
+  # auto_hole | auto_dynamic
+  target_selection_mode: auto_hole
+  # auto_hole時のフィルタ閾値
+  target_max_ratio: 0.2
+  target_max_boundary_ratio: 0.2
+  target_min_temporal_delta: 1.0
+
+  # 学習点抽出時の境界除外
+  domain_boundary_margin_vox: 1
+  # SDF作成前にValidMaskを侵食して固定境界影響を抑制
+  phi_boundary_clip_vox: 3
+
+  # trueで最終step教師も学習に含める（通常はfalse推奨）
+  include_terminal_step_target: false
+
+  # MaterialIdsがない場合のlegacy fallback
+  mask_array: ""
+  mask_material_id: 2
+
+evaluation:
+  # 評価時の追加マージン（境界リーク抑制）
+  analysis_xy_margin_vox: 2
+  analysis_z_margin_vox: 1
+
+runtime:
+  # 1で real ME 経路も実行。0で quick のみ
+  run_real_me: 0
+
+postprocess:
+  mesh3d:
+    enabled: true
+    # GT/PRED 比較する時刻。all可
+    frames: "0,4,8"
+    voxel_stride: 1
+    enable_cutaway: true

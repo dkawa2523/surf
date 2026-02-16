@@ -1,0 +1,119 @@
+[project]
+name = "wafer-surrogate-accuracy"
+
+[run]
+mode = "train"
+output_dir = "runs"
+run_id = "example_accuracy"
+
+[data]
+source = "synthetic"
+num_runs = 3
+num_steps = 8
+grid_size = 28
+dt = 0.1
+dimension = 3
+grid_depth = 16
+
+[model]
+name = "baseline"
+
+[prior]
+name = "gaussian_latent"
+latent_dim = 4
+mean = [0.0, 0.0, 0.0, 0.0]
+std = [1.0, 1.0, 1.0, 1.0]
+
+[pipeline]
+stages = ["cleaning", "featurization", "preprocessing", "train", "inference"]
+
+[cleaning]
+remove_duplicates = true
+fill_missing_recipe = true
+fill_missing_recipe_value = 0.0
+normalize_recipe = { enabled = true }
+
+[featurization]
+extractor = "identity"
+extractor_kwargs = { prefix = "feat_" }
+target_mode = "vn_narrow_band"
+band_width = 0.5
+min_grad_norm = 1e-6
+include_terminal_step_target = false
+nb_backend = "hdf5"
+emit_priv = true
+priv_source = "auto"
+
+[preprocessing]
+steps = ["identity"]
+feature_transform = "robust"
+target_transform = "standard"
+feature_log1p = false
+
+[train]
+mode = "sparse_distill"
+teacher_model = "sparse_vn_teacher"
+student_model = "sparse_vn_student"
+distill_alpha = 0.5
+distill_beta = 0.2
+distill_gamma = 0.1
+sparse_batch_points = 20000
+sparse_model_profile = "small"
+early_stopping_patience = 5
+grad_clip_norm = 5.0
+lr_scheduler = "none"
+rollout_loss_enabled = true
+rollout_k = 3
+rollout_weight = 0.1
+temporal_step_weight = "early_decay"
+step_sampling_policy = "early_bias"
+fallback_model = "baseline_vn_linear_trainable"
+strict_split = true
+
+[inference]
+mode = "single"
+ood_threshold = 3.0
+template_run_id = ""
+reinit_enabled = true
+reinit_every_n = 5
+reinit_iters = 8
+reinit_dt = 0.3
+
+[inference.calibration]
+enabled = true
+method = "map"
+sem_features = ""
+latent_dim = 8
+num_posterior_samples = 32
+observation_model = "multiview"
+observation_kwargs = { num_views = 5, narrow_band_width = 0.5 }
+prior_model = "gaussian_mixture"
+prior_kwargs = { latent_dim = 8, weights = [0.6, 0.4], means = [[0,0,0,0,0,0,0,0], [0.5,0.5,0.5,0.5,0.5,0.5,0.5,0.5]], stds = [[1,1,1,1,1,1,1,1], [0.8,0.8,0.8,0.8,0.8,0.8,0.8,0.8]] }
+
+[visualization]
+
+[visualization.defaults]
+enabled = true
+
+[visualization.train]
+learning_curves = true
+scatter_gt_pred = true
+r2 = true
+
+[visualization.inference]
+temporal_diagnostics_plot = true
+
+[visualization.sdf_views]
+xy = true
+xz = true
+yz = true
+gt_pred_error = true
+
+[visualization.mesh3d]
+html = true
+cutaway = true
+compare_t8 = true
+
+[visualization.export]
+dpi = 140
+max_frames = "all"
