@@ -138,9 +138,25 @@ flowchart TD
   - **メモリ**  
   を削減できる
 
+### 5.2.1 なぜ narrow band だと \(V_n\) が学習しやすいか
+- \(V_n\) 教師は \(\displaystyle V_n \approx (\phi_t-\phi_{t+\Delta t})/(\Delta t |\nabla\phi|)\) で作るため、**界面近傍以外では情報量が小さい**  
+- 全領域で学習すると「ほぼ変化しない遠方点（\(V_n\approx0\)）」が多数派になり、学習がゼロ寄りへ引っ張られやすい  
+- narrow band は、変化が起きる点だけを高密度に使うので、**同じrun数でも有効サンプル密度が上がる**
+
+### 5.2.2 narrow band 以外/“距離でないSDF”で起きる問題
+- **全領域SDF**：計算資源の大半を遠方点に使い、重要な界面点の重みが相対的に下がる  
+- **符号だけの疑似SDF（\(\pm1\)）**：距離情報が無く \(|\nabla\phi|\) が不安定になり、\(V_n\) 教師がノイジー化する  
+- **再初期化不足のSDF**：\(|\nabla\phi|\neq1\) が進むと、同じ物理移動でも教師スケールが時刻でぶれる  
+- **符号規約の不一致**：\(V_n\) の符号意味（エッチ/デポ）がrun間で反転し、学習が破綻しやすい
+
 ### 5.3 voxel→SDFの生成（典型）
 - 3D occupancy（材料/空隙）から、内外の距離を別々に距離変換して符号付け  
 - 重要：符号規約（内側が負/外側が正 など）を全工程で統一
+
+### 5.3.1 現行実装での注意（SDF品質）
+- データ前処理は距離変換が使える場合はEDTでSDF化し、使えない場合は `binary_sign_fallback` に落ちる  
+- fallbackは「距離」ではなく符号場に近いため、narrow band幅が小さい設定では有効点が減りやすい  
+- そのため、\(V_n\) 学習の安定性を優先するなら「距離としてのSDF」を優先するのが実務的に有利
 
 ### 5.4 再初期化（reinitialization）
 レベルセット更新で \(\phi\) がSDFからずれることがあるため、定期的に距離場へ戻す。  
@@ -181,6 +197,11 @@ V_n(x,t) \approx \frac{\phi_t(x)-\phi_{t+\Delta t}(x)}{\Delta t \, |\nabla \phi_
 
 > 重要：これにより **“1本の3D MC run” から表面点×時間の大量教師**が得られ、  
 > run数（条件数）を爆増させなくても学習が成立しやすい。
+
+### 6.4 「SDF評価」だと \(V_n\) 学習が有利になる理由
+- occupancyの0/1評価と違い、SDFは連続値なので**微小な形状差（丸み・底部の浅い変化）**が損失に現れる  
+- レベルセット式は \(V_n\) と直接結び付くため、目標が「形状そのもの」より**因果的に近い**  
+- 現行実装でも、`vn_target` はSDF時系列差分から生成し、\(|\nabla\phi|\) が小さい点を除外して教師ノイズを抑えている（narrow band生成時の `min_grad_norm` フィルタ）
 
 ---
 
@@ -227,6 +248,27 @@ narrow band点ごとに：
 ### 8.3 関連概念（理論的背景）
 - LUPI（Learning Using Privileged Information）：学習時だけ特別な情報を使って学習を加速する枠組み  
 - Knowledge Distillation：大きいモデル（またはアンサンブル）の知識を小さいモデルに移す
+
+### 8.4 Teacher / Student は現行実装で具体的に何を指すか
+- 学習モードは `train.mode=sparse_distill`（推論はStudentを利用）  
+- データ側では、同じnarrow band点に対して  
+  - `student_feat`: 幾何特徴（\(\phi, |\nabla\phi|, \kappa\), 座標, step index）  
+  - `teacher_feat`: 上記 + `priv`（内部ログ由来の特権特徴）  
+  を作る
+- 学習側では、同系統のSparse U-Net（FiLM付き）を2本使う  
+  - Teacher: `teacher_feat -> V_n` を先に学習  
+  - Student: `student_feat -> V_n` を学習し、Teacherの出力/中間特徴へ蒸留
+- Student損失は現行実装で  
+  \[
+  L=\alpha L_{\text{target}}+\beta L_{\text{teacher}}+\gamma L_{\text{feature}} \quad (+\;L_{\text{rollout}} \text{ optional})
+  \]
+  として構成される
+
+### 8.5 今の実装で有益な点（運用上の意味）
+- **推論はStudentのみ**で動くため、本番時に `priv`（MC内部ログ）が不要  
+- optional依存（torch/MinkowskiEngine）が無い環境では `sparse_distill` から tabular baseline へフォールバックし、パイプライン停止を避けられる  
+- run単位の分割、時間重み付け、early-biasサンプリング、rollout補助損失により、単純な1step当てより時系列の破綻を抑えやすい  
+- `teacher_mae / student_mae / distill_gap` が出力されるため、「蒸留が効いたか」を訓練結果で判定しやすい
 
 ---
 
