@@ -7,13 +7,37 @@ cd "$ROOT_DIR"
 # shellcheck disable=SC1091
 if [ -f "$ROOT_DIR/scripts/env.sh" ]; then
   source "$ROOT_DIR/scripts/env.sh"
-else
-  # preflight未実行でも最低限動くように（ただし推奨はpreflight）
-  PYTHON=${PYTHON:-python3}
 fi
 
-RUN_CMD=("$PYTHON" -m wafer_surrogate.cli)
-VERIFY_CMD=("$PYTHON" -m wafer_surrogate.verify)
+PYTHON_CMD=()
+resolve_python_cmd() {
+  if [ -n "${PYTHON:-}" ]; then
+    if [ -x "${PYTHON}" ] || command -v "${PYTHON}" >/dev/null 2>&1; then
+      PYTHON_CMD=("${PYTHON}")
+      return
+    fi
+  fi
+
+  if command -v py >/dev/null 2>&1; then
+    PYTHON_CMD=("py" "-3")
+    return
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    PYTHON_CMD=("python3")
+    return
+  fi
+  if command -v python >/dev/null 2>&1; then
+    PYTHON_CMD=("python")
+    return
+  fi
+
+  echo "ERROR: python executable not found; run ./scripts/preflight.sh first." >&2
+  exit 1
+}
+
+resolve_python_cmd
+RUN_CMD=("${PYTHON_CMD[@]}" -m wafer_surrogate.cli)
+VERIFY_CMD=("${PYTHON_CMD[@]}" -m wafer_surrogate.verify)
 
 cmd=${1:-}
 shift || true
@@ -32,7 +56,7 @@ case "$cmd" in
     bash "$ROOT_DIR/scripts/manage_torchmd_env.sh" "$@"
     ;;
   python)
-    echo "$PYTHON"
+    printf '%s\n' "${PYTHON_CMD[*]}"
     ;;
   *)
     echo "Usage: ./scripts/commands.sh {run|verify|verify-full|test|torchmd|python} [-- <args>]" >&2

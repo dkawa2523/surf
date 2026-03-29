@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
 from pathlib import Path
 from statistics import fmean, pstdev
@@ -16,10 +15,16 @@ from wafer_surrogate.data.io import (
     write_zarr_dataset,
 )
 from wafer_surrogate.data.mc_logs import PRIV_FEATURE_NAMES, dense_priv_matrix, resolve_privileged_lookup
-from wafer_surrogate.data.synthetic import SyntheticSDFDataset, SyntheticSDFRun
+from wafer_surrogate.data.synthetic import SyntheticSDFDataset
 from wafer_surrogate.features import make_feature_extractor
 from wafer_surrogate.geometry import finite_diff_grad
 from wafer_surrogate.core import validate_rows_against_feature_contract
+from wafer_surrogate.pipeline.stages.common_io import (
+    dataset_from_mapping,
+    load_json_mapping,
+    normalize_artifact_path,
+    stage_external_inputs,
+)
 from wafer_surrogate.pipeline.types import ArtifactRef, ReconstructionBundle, StageResult
 from wafer_surrogate.pipeline.utils import flatten_frame, write_csv, write_json
 
@@ -64,34 +69,6 @@ def _shape_features(frame: Any, *, narrow_band_width: float = 0.5) -> dict[str, 
         "curvature_proxy_mean": fmean(curvature_abs),
         "curvature_proxy_max": max(curvature_abs),
     }
-
-
-def _dataset_from_dict(payload: Mapping[str, Any]) -> SyntheticSDFDataset:
-    runs_payload = payload.get("runs")
-    if not isinstance(runs_payload, list) or not runs_payload:
-        raise ValueError("dataset json must include non-empty 'runs'")
-    runs: list[SyntheticSDFRun] = []
-    for index, run in enumerate(runs_payload):
-        if not isinstance(run, Mapping):
-            raise ValueError(f"runs[{index}] must be a mapping")
-        run_id = str(run.get("run_id", f"run_{index:03d}"))
-        dt = float(run.get("dt", 0.1))
-        recipe_raw = run.get("recipe", {})
-        if not isinstance(recipe_raw, Mapping):
-            raise ValueError(f"runs[{index}].recipe must be mapping")
-        recipe = {str(k): float(v) for k, v in recipe_raw.items()}
-        phi_t_raw = run.get("phi_t")
-        if not isinstance(phi_t_raw, list) or not phi_t_raw:
-            raise ValueError(f"runs[{index}].phi_t must be non-empty list")
-        phi_t = []
-        for frame in phi_t_raw:
-            if hasattr(frame, "tolist"):
-                frame = frame.tolist()
-            if not isinstance(frame, list):
-                raise ValueError(f"runs[{index}].phi_t frame must be list")
-            phi_t.append([[float(cell) for cell in row] for row in frame])
-        runs.append(SyntheticSDFRun(run_id=run_id, dt=dt, recipe=recipe, phi_t=phi_t))
-    return SyntheticSDFDataset(runs=runs)
 
 
 def _serialize_narrow_band_dataset(dataset: NarrowBandDataset) -> dict[str, Any]:
@@ -264,15 +241,7 @@ class FeaturizationStage:
     name = "featurization"
 
     def _stage_external_inputs(self, runtime: Any) -> dict[str, str]:
-        run_cfg = getattr(runtime, "run_config", None)
-        stages = getattr(run_cfg, "stages", [])
-        for stage_cfg in stages:
-            if str(getattr(stage_cfg, "name", "")) != self.name:
-                continue
-            raw = getattr(stage_cfg, "external_inputs", {})
-            if isinstance(raw, Mapping):
-                return {str(key): str(value) for key, value in raw.items()}
-        return {}
+        return stage_external_inputs(runtime, self.name)
 
     def run(self, runtime: Any, stage_dirs: dict[str, Path]) -> StageResult:
         params = runtime.stage_params("featurization")
@@ -296,11 +265,8 @@ class FeaturizationStage:
                 resolved = Path(dataset_path)
                 if not resolved.exists() or not resolved.is_file():
                     raise ValueError(f"featurization dataset_json does not exist: {resolved}")
-                with resolved.open("r", encoding="utf-8") as fp:
-                    payload = json.load(fp)
-                if not isinstance(payload, Mapping):
-                    raise ValueError("featurization dataset_json must contain a mapping")
-                dataset = _dataset_from_dict(payload)
+                payload = load_json_mapping(resolved, label="featurization dataset_json")
+                dataset = dataset_from_mapping(payload, label="featurization dataset_json")
                 input_refs["dataset_json"] = str(resolved)
         if not isinstance(dataset, SyntheticSDFDataset):
             raise ValueError("featurization stage requires dataset_clean/dataset_raw or external_inputs.dataset_json")
@@ -490,8 +456,8 @@ class FeaturizationStage:
 
         bundle = ReconstructionBundle(
             id=f"{runtime.run_dir.name}:featurization",
-            payload_path=str(rows_path),
-            target_path=str(targets_path),
+            payload_path=normalize_artifact_path(rows_path),
+            target_path=normalize_artifact_path(targets_path),
             metrics={
                 "schema_version": 2.0,
                 "num_runs": float(len(dataset.runs)),

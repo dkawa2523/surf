@@ -36,6 +36,12 @@ from wafer_surrogate.models.sparse_unet_film import OptionalSparseDependencyUnav
 from wafer_surrogate.metrics import compute_temporal_diagnostics
 from wafer_surrogate.observation import make_observation_model
 from wafer_surrogate.optimization import run_optimization_engine
+from wafer_surrogate.pipeline.stages.common_io import (
+    dataset_from_json as read_dataset_from_json,
+    load_float_csv_rows,
+    load_json_mapping as read_json_mapping,
+    stage_external_inputs,
+)
 from wafer_surrogate.pipeline.types import ArtifactRef, StageResult
 from wafer_surrogate.prior import make_shape_prior
 from wafer_surrogate.runtime import detect_runtime_capabilities
@@ -81,43 +87,11 @@ def _to_float_nested(frame: Any) -> Any:
 
 
 def _dataset_from_json(path: Path) -> SyntheticSDFDataset:
-    with path.open("r", encoding="utf-8") as fp:
-        payload = json.load(fp)
-    if not isinstance(payload, Mapping):
-        raise ValueError(f"inference dataset_json must be mapping: {path}")
-    runs_payload = payload.get("runs")
-    if not isinstance(runs_payload, list) or not runs_payload:
-        raise ValueError(f"inference dataset_json requires non-empty runs: {path}")
-    runs: list[SyntheticSDFRun] = []
-    for index, run in enumerate(runs_payload):
-        if not isinstance(run, Mapping):
-            raise ValueError(f"inference runs[{index}] must be mapping")
-        recipe_raw = run.get("recipe", {})
-        if not isinstance(recipe_raw, Mapping):
-            raise ValueError(f"inference runs[{index}].recipe must be mapping")
-        phi_t_raw = run.get("phi_t")
-        if not isinstance(phi_t_raw, list) or not phi_t_raw:
-            raise ValueError(f"inference runs[{index}].phi_t must be non-empty list")
-        phi_t = []
-        for frame in phi_t_raw:
-            if hasattr(frame, "tolist"):
-                frame = frame.tolist()
-            phi_t.append([[float(cell) for cell in row] for row in frame])
-        runs.append(
-            SyntheticSDFRun(
-                run_id=str(run.get("run_id", f"run_{index:03d}")),
-                dt=float(run.get("dt", 0.1)),
-                recipe={str(k): float(v) for k, v in recipe_raw.items()},
-                phi_t=phi_t,
-            )
-        )
-    return SyntheticSDFDataset(runs=runs)
+    return read_dataset_from_json(path, label="inference dataset_json")
 
 
 def _load_feature_rows(path: Path) -> list[dict[str, float]]:
-    with path.open("r", encoding="utf-8", newline="") as fp:
-        rows = [dict(row) for row in csv.DictReader(fp)]
-    return [{str(key): float(value) for key, value in row.items()} for row in rows]
+    return load_float_csv_rows(path, label="inference processed_features_csv")
 
 
 def _load_condition_rows(path: str | None) -> list[dict[str, float]]:
@@ -217,6 +191,8 @@ def _run_rollout(
     conditions: Mapping[str, float],
     *,
     simulation_options: Mapping[str, object] | None,
+    strict_simulation: bool = False,
+    warnings: list[str] | None = None,
 ) -> list[Any]:
     run = SyntheticSDFRun(
         run_id=template.run_id,
@@ -224,7 +200,13 @@ def _run_rollout(
         recipe={str(k): float(v) for k, v in conditions.items()},
         phi_t=template.phi_t,
     )
-    return rollout(run, model, simulation_options=simulation_options)
+    return rollout(
+        run,
+        model,
+        simulation_options=simulation_options,
+        strict_simulation=bool(strict_simulation),
+        warnings=warnings,
+    )
 
 
 def _ood_status_counts(rows: Sequence[Mapping[str, object]]) -> dict[str, int]:
@@ -411,11 +393,7 @@ def _plot_temporal_diagnostics_rows(
 
 
 def _load_json_mapping(path: Path) -> dict[str, Any]:
-    with path.open("r", encoding="utf-8") as fp:
-        payload = json.load(fp)
-    if not isinstance(payload, Mapping):
-        raise ValueError(f"json mapping expected: {path}")
-    return {str(k): v for k, v in payload.items()}
+    return read_json_mapping(path, label="inference json mapping")
 
 
 def _inject_latent(conditions: Mapping[str, float], z: Sequence[float]) -> dict[str, float]:
@@ -465,19 +443,89 @@ def _load_latent_prior_payload(path: Path, *, latent_dim: int) -> dict[str, list
     return out
 
 
+def _emit_viz_manifest(
+    *,
+    stage_dirs: Mapping[str, Path],
+    mode_name: str,
+    viz_cfg: Mapping[str, Any],
+    warnings: Sequence[str],
+    outputs: Mapping[str, Any],
+) -> Path:
+    manifest_payload = {
+        "mode": mode_name,
+        "config": dict(viz_cfg),
+        "outputs": {str(k): v for k, v in outputs.items()},
+        "warnings": [
+            str(message)
+            for message in warnings
+            if str(message).startswith("inference temporal diagnostics plot")
+            or "viz config" in str(message)
+            or str(message).startswith("rollout fallback:")
+        ],
+    }
+    return write_visualization_manifest(
+        stage_dirs["outputs"] / "visualization_manifest.json",
+        manifest_payload,
+    )
+
+
+def _write_reinit_log(
+    *,
+    stage_dirs: Mapping[str, Path],
+    reinit_enabled: bool,
+    reinit_every_n: int,
+    reinit_iters: int,
+    reinit_dt: float,
+    reinit_events: Sequence[Mapping[str, Any]],
+) -> Path | None:
+    if not reinit_enabled and not reinit_events:
+        return None
+    payload = {
+        "enabled": bool(reinit_enabled),
+        "reinit_every_n": int(reinit_every_n),
+        "reinit_iters": int(reinit_iters),
+        "reinit_dt": float(reinit_dt),
+        "num_events": len(reinit_events),
+        "events": [dict(event) for event in reinit_events],
+    }
+    return write_json(stage_dirs["outputs"] / "inference_reinit_log.json", payload)
+
+
+def _write_temporal_outputs(
+    *,
+    stage_dirs: Mapping[str, Path],
+    mode: str,
+    rows: Sequence[Mapping[str, Any]],
+    viz_cfg: Mapping[str, Any],
+    warnings: list[str],
+    extras: Mapping[str, Any] | None = None,
+) -> tuple[Path | None, Path | None]:
+    if not rows:
+        return None, None
+    temporal_path = _write_temporal_diagnostics(
+        stage_dirs=stage_dirs,
+        mode=mode,
+        rows=rows,
+        extras=extras,
+    )
+    temporal_plot_path = _plot_temporal_diagnostics_rows(
+        stage_dirs=stage_dirs,
+        mode=mode,
+        rows=rows,
+        enabled=viz_enabled(viz_cfg, "inference.temporal_diagnostics_plot", True),
+        dpi=int(viz_cfg.get("export", {}).get("dpi", 140))
+        if isinstance(viz_cfg.get("export"), Mapping)
+        else 140,
+        warnings=warnings,
+    )
+    return temporal_path, temporal_plot_path
+
+
 class InferenceStage:
     name = "inference"
 
     def _stage_external_inputs(self, runtime: Any) -> dict[str, str]:
-        run_cfg = getattr(runtime, "run_config", None)
-        stages = getattr(run_cfg, "stages", [])
-        for stage_cfg in stages:
-            if str(getattr(stage_cfg, "name", "")) != self.name:
-                continue
-            raw = getattr(stage_cfg, "external_inputs", {})
-            if isinstance(raw, Mapping):
-                return {str(key): str(value) for key, value in raw.items()}
-        return {}
+        return stage_external_inputs(runtime, self.name)
 
     def run(self, runtime: Any, stage_dirs: dict[str, Path]) -> StageResult:
         params = runtime.stage_params("inference")
@@ -485,6 +533,7 @@ class InferenceStage:
         backend = _resolve_inference_backend(mode)
         mode = backend.mode
         threshold = float(params.get("ood_threshold", 3.0))
+        strict_simulation = bool(params.get("strict_simulation", False))
 
         reinit_enabled = bool(params.get("reinit_enabled", False))
         reinit_every_n = max(1, int(params.get("reinit_every_n", 5)))
@@ -505,18 +554,6 @@ class InferenceStage:
             stage_config=stage_viz_cfg if isinstance(stage_viz_cfg, Mapping) else {},
             warnings=warnings,
         )
-
-        def _emit_viz_manifest(mode_name: str, outputs: Mapping[str, Any]) -> Path:
-            manifest_payload = {
-                "mode": mode_name,
-                "config": viz_cfg,
-                "outputs": {str(k): v for k, v in outputs.items()},
-                "warnings": [str(message) for message in warnings if str(message).startswith("inference temporal diagnostics plot") or "viz config" in str(message)],
-            }
-            return write_visualization_manifest(
-                stage_dirs["outputs"] / "visualization_manifest.json",
-                manifest_payload,
-            )
 
         model = runtime.payload.get("trained_model")
         model_state_payload: dict[str, Any] = {}
@@ -796,7 +833,14 @@ class InferenceStage:
                             local_events: list[dict[str, Any]] = []
                             sim_opts = dict(simulation_options)
                             sim_opts["reinit_log"] = local_events
-                            seq = _run_rollout(template, model, cond, simulation_options=sim_opts)
+                            seq = _run_rollout(
+                                template,
+                                model,
+                                cond,
+                                simulation_options=sim_opts,
+                                strict_simulation=strict_simulation,
+                                warnings=warnings,
+                            )
                             for event in local_events:
                                 if len(reinit_events) >= 500:
                                     break
@@ -922,7 +966,14 @@ class InferenceStage:
                 local_events: list[dict[str, Any]] = []
                 sim_opts = dict(simulation_options)
                 sim_opts["reinit_log"] = local_events
-                rollout_seq = _run_rollout(template, model, candidate_with_latent, simulation_options=sim_opts)
+                rollout_seq = _run_rollout(
+                    template,
+                    model,
+                    candidate_with_latent,
+                    simulation_options=sim_opts,
+                    strict_simulation=strict_simulation,
+                    warnings=warnings,
+                )
                 objective = frame_mean(rollout_seq[-1])
                 temporal_diag = compute_temporal_diagnostics(
                     predicted_phi_t=rollout_seq,
@@ -986,7 +1037,14 @@ class InferenceStage:
                 local_events: list[dict[str, Any]] = []
                 sim_opts = dict(simulation_options)
                 sim_opts["reinit_log"] = local_events
-                rollout_seq = _run_rollout(template, model, cond_with_latent, simulation_options=sim_opts)
+                rollout_seq = _run_rollout(
+                    template,
+                    model,
+                    cond_with_latent,
+                    simulation_options=sim_opts,
+                    strict_simulation=strict_simulation,
+                    warnings=warnings,
+                )
                 prediction = {
                     "num_steps": len(rollout_seq),
                     "final_phi_mean": frame_mean(rollout_seq[-1]),
@@ -1066,33 +1124,29 @@ class InferenceStage:
                 "condition_vector_diagnostics": cond_diag,
                 "latent_used": calibrated_latent is not None,
                 "calibration_method": calibration_method,
+                "strict_simulation": bool(strict_simulation),
                 "rollout_preview_path": None if rollout_preview_path is None else str(rollout_preview_path),
             }
             path = write_json(stage_dirs["outputs"] / "inference_single.json", payload)
-            temporal_path: Path | None = None
-            temporal_plot_path: Path | None = None
-            if temporal_diag_single is not None:
-                temporal_rows = [
+            temporal_rows = (
+                [
                     {
                         "index": 0,
                         "template_run_id": selected_template_run_id,
                         **temporal_diag_single,
                     }
                 ]
-                temporal_path = _write_temporal_diagnostics(
-                    stage_dirs=stage_dirs,
-                    mode="single",
-                    rows=temporal_rows,
-                    extras={"template_run_id": selected_template_run_id},
-                )
-                temporal_plot_path = _plot_temporal_diagnostics_rows(
-                    stage_dirs=stage_dirs,
-                    mode="single",
-                    rows=temporal_rows,
-                    enabled=viz_enabled(viz_cfg, "inference.temporal_diagnostics_plot", True),
-                    dpi=int(viz_cfg.get("export", {}).get("dpi", 140)) if isinstance(viz_cfg.get("export"), Mapping) else 140,
-                    warnings=warnings,
-                )
+                if temporal_diag_single is not None
+                else []
+            )
+            temporal_path, temporal_plot_path = _write_temporal_outputs(
+                stage_dirs=stage_dirs,
+                mode="single",
+                rows=temporal_rows,
+                viz_cfg=viz_cfg,
+                warnings=warnings,
+                extras={"template_run_id": selected_template_run_id},
+            )
             metrics = {
                 "num_steps": float(prediction["num_steps"]),
                 "in_domain": 1.0 if bool(ood.get("in_domain", False)) else 0.0,
@@ -1126,23 +1180,23 @@ class InferenceStage:
                     )
                 )
 
-            if reinit_enabled or reinit_events:
-                reinit_log_path = write_json(
-                    stage_dirs["outputs"] / "inference_reinit_log.json",
-                    {
-                        "enabled": bool(reinit_enabled),
-                        "reinit_every_n": int(reinit_every_n),
-                        "reinit_iters": int(reinit_iters),
-                        "reinit_dt": float(reinit_dt),
-                        "num_events": len(reinit_events),
-                        "events": reinit_events,
-                    },
-                )
+            reinit_log_path = _write_reinit_log(
+                stage_dirs=stage_dirs,
+                reinit_enabled=reinit_enabled,
+                reinit_every_n=reinit_every_n,
+                reinit_iters=reinit_iters,
+                reinit_dt=reinit_dt,
+                reinit_events=reinit_events,
+            )
+            if reinit_log_path is not None:
                 artifacts.append(ArtifactRef(name="inference_reinit_log", path=str(reinit_log_path), kind="json"))
 
             viz_manifest_path = _emit_viz_manifest(
-                "single",
-                {
+                stage_dirs=stage_dirs,
+                mode_name="single",
+                viz_cfg=viz_cfg,
+                warnings=warnings,
+                outputs={
                     "temporal_json": None if temporal_path is None else str(temporal_path),
                     "temporal_plot_png": None if temporal_plot_path is None else str(temporal_plot_path),
                     "ood_report_json": str(ood_report_path),
@@ -1278,6 +1332,7 @@ class InferenceStage:
                 "condition_vector_diagnostics": rows[0].get("condition_vector_diagnostics") if rows else None,
                 "latent_used": calibrated_latent is not None,
                 "calibration_method": calibration_method,
+                "strict_simulation": bool(strict_simulation),
             }
             summary_path = write_json(stage_dirs["outputs"] / "inference_batch.json", summary)
             temporal_rows = [
@@ -1289,23 +1344,14 @@ class InferenceStage:
                 for row in rows
                 if isinstance(row.get("temporal_diagnostics"), Mapping)
             ]
-            temporal_path: Path | None = None
-            temporal_plot_path: Path | None = None
-            if temporal_rows:
-                temporal_path = _write_temporal_diagnostics(
-                    stage_dirs=stage_dirs,
-                    mode="batch",
-                    rows=temporal_rows,
-                    extras={"template_run_id": selected_template_run_id},
-                )
-                temporal_plot_path = _plot_temporal_diagnostics_rows(
-                    stage_dirs=stage_dirs,
-                    mode="batch",
-                    rows=temporal_rows,
-                    enabled=viz_enabled(viz_cfg, "inference.temporal_diagnostics_plot", True),
-                    dpi=int(viz_cfg.get("export", {}).get("dpi", 140)) if isinstance(viz_cfg.get("export"), Mapping) else 140,
-                    warnings=warnings,
-                )
+            temporal_path, temporal_plot_path = _write_temporal_outputs(
+                stage_dirs=stage_dirs,
+                mode="batch",
+                rows=temporal_rows,
+                viz_cfg=viz_cfg,
+                warnings=warnings,
+                extras={"template_run_id": selected_template_run_id},
+            )
             artifacts.extend(
                 [
                     ArtifactRef(name="inference_batch_csv", path=str(csv_path), kind="csv"),
@@ -1322,23 +1368,23 @@ class InferenceStage:
                     ArtifactRef(name="temporal_diagnostics_batch_plot", path=str(temporal_plot_path), kind="png")
                 )
 
-            if reinit_enabled or reinit_events:
-                reinit_log_path = write_json(
-                    stage_dirs["outputs"] / "inference_reinit_log.json",
-                    {
-                        "enabled": bool(reinit_enabled),
-                        "reinit_every_n": int(reinit_every_n),
-                        "reinit_iters": int(reinit_iters),
-                        "reinit_dt": float(reinit_dt),
-                        "num_events": len(reinit_events),
-                        "events": reinit_events,
-                    },
-                )
+            reinit_log_path = _write_reinit_log(
+                stage_dirs=stage_dirs,
+                reinit_enabled=reinit_enabled,
+                reinit_every_n=reinit_every_n,
+                reinit_iters=reinit_iters,
+                reinit_dt=reinit_dt,
+                reinit_events=reinit_events,
+            )
+            if reinit_log_path is not None:
                 artifacts.append(ArtifactRef(name="inference_reinit_log", path=str(reinit_log_path), kind="json"))
 
             viz_manifest_path = _emit_viz_manifest(
-                "batch",
-                {
+                stage_dirs=stage_dirs,
+                mode_name="batch",
+                viz_cfg=viz_cfg,
+                warnings=warnings,
+                outputs={
                     "batch_summary_json": str(summary_path),
                     "batch_csv": str(csv_path),
                     "temporal_json": None if temporal_path is None else str(temporal_path),
@@ -1521,6 +1567,7 @@ class InferenceStage:
                 ),
                 "latent_used": calibrated_latent is not None,
                 "calibration_method": calibration_method,
+                "strict_simulation": bool(strict_simulation),
             }
             summary_path = write_json(stage_dirs["outputs"] / "inference_optimize_summary.json", summary)
             temporal_rows = [
@@ -1532,23 +1579,14 @@ class InferenceStage:
                 for row in history
                 if isinstance(row.get("temporal_diagnostics"), Mapping)
             ]
-            temporal_path: Path | None = None
-            temporal_plot_path: Path | None = None
-            if temporal_rows:
-                temporal_path = _write_temporal_diagnostics(
-                    stage_dirs=stage_dirs,
-                    mode="optimize",
-                    rows=temporal_rows,
-                    extras={"template_run_id": selected_template_run_id},
-                )
-                temporal_plot_path = _plot_temporal_diagnostics_rows(
-                    stage_dirs=stage_dirs,
-                    mode="optimize",
-                    rows=temporal_rows,
-                    enabled=viz_enabled(viz_cfg, "inference.temporal_diagnostics_plot", True),
-                    dpi=int(viz_cfg.get("export", {}).get("dpi", 140)) if isinstance(viz_cfg.get("export"), Mapping) else 140,
-                    warnings=warnings,
-                )
+            temporal_path, temporal_plot_path = _write_temporal_outputs(
+                stage_dirs=stage_dirs,
+                mode="optimize",
+                rows=temporal_rows,
+                viz_cfg=viz_cfg,
+                warnings=warnings,
+                extras={"template_run_id": selected_template_run_id},
+            )
             artifacts.extend(
                 [
                     ArtifactRef(name="inference_optimize_history", path=str(csv_path), kind="csv"),
@@ -1566,23 +1604,23 @@ class InferenceStage:
                     ArtifactRef(name="temporal_diagnostics_optimize_plot", path=str(temporal_plot_path), kind="png")
                 )
 
-            if reinit_enabled or reinit_events:
-                reinit_log_path = write_json(
-                    stage_dirs["outputs"] / "inference_reinit_log.json",
-                    {
-                        "enabled": bool(reinit_enabled),
-                        "reinit_every_n": int(reinit_every_n),
-                        "reinit_iters": int(reinit_iters),
-                        "reinit_dt": float(reinit_dt),
-                        "num_events": len(reinit_events),
-                        "events": reinit_events,
-                    },
-                )
+            reinit_log_path = _write_reinit_log(
+                stage_dirs=stage_dirs,
+                reinit_enabled=reinit_enabled,
+                reinit_every_n=reinit_every_n,
+                reinit_iters=reinit_iters,
+                reinit_dt=reinit_dt,
+                reinit_events=reinit_events,
+            )
+            if reinit_log_path is not None:
                 artifacts.append(ArtifactRef(name="inference_reinit_log", path=str(reinit_log_path), kind="json"))
 
             viz_manifest_path = _emit_viz_manifest(
-                "optimize",
-                {
+                stage_dirs=stage_dirs,
+                mode_name="optimize",
+                viz_cfg=viz_cfg,
+                warnings=warnings,
+                outputs={
                     "optimize_summary_json": str(summary_path),
                     "optimize_history_csv": str(csv_path),
                     "optimize_history_json": str(history_json_path),

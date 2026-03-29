@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import csv
 import inspect
 import json
 import random
@@ -25,6 +24,12 @@ from wafer_surrogate.runtime import detect_runtime_capabilities
 from wafer_surrogate.training import OptionalSparseDependencyUnavailable, SparseDistillConfig, train_sparse_distill
 from wafer_surrogate.pipeline.types import ArtifactRef, StageResult
 from wafer_surrogate.pipeline.utils import write_csv, write_json
+from wafer_surrogate.pipeline.stages.common_io import (
+    load_float_csv_rows,
+    load_float_target_values,
+    load_json_mapping,
+    stage_external_inputs,
+)
 from wafer_surrogate.viz.plots import render_train_output_visuals
 from wafer_surrogate.viz.utils import resolve_visualization_config, viz_enabled
 
@@ -136,6 +141,19 @@ def _condition_rows_from_features(features: list[dict[str, float]]) -> list[dict
         if cond:
             out.append(cond)
     return out
+
+
+def _rollout_short_window_error(metrics: Mapping[str, Any]) -> float:
+    candidates = (
+        metrics.get("cv_valid_rmse"),
+        metrics.get("rollout_short_window_error"),
+        metrics.get("rollout_loss"),
+        metrics.get("rmse"),
+    )
+    for value in candidates:
+        if isinstance(value, (int, float)):
+            return float(value)
+    return 0.0
 
 
 class TrainBackend(Protocol):
@@ -257,40 +275,16 @@ class TrainStage:
         return out
 
     def _stage_external_inputs(self, runtime: Any) -> dict[str, str]:
-        run_cfg = getattr(runtime, "run_config", None)
-        stages = getattr(run_cfg, "stages", [])
-        for stage_cfg in stages:
-            if str(getattr(stage_cfg, "name", "")) != self.name:
-                continue
-            raw = getattr(stage_cfg, "external_inputs", {})
-            if isinstance(raw, Mapping):
-                return {str(key): str(value) for key, value in raw.items()}
-        return {}
+        return stage_external_inputs(runtime, self.name)
 
     def _read_feature_rows(self, path: Path) -> list[dict[str, float]]:
-        with path.open("r", encoding="utf-8", newline="") as fp:
-            rows = [dict(row) for row in csv.DictReader(fp)]
-        return [{str(key): float(value) for key, value in row.items()} for row in rows]
+        return load_float_csv_rows(path, label="train processed_features_csv")
 
     def _read_target_values(self, path: Path) -> list[float]:
-        with path.open("r", encoding="utf-8", newline="") as fp:
-            rows = [dict(row) for row in csv.DictReader(fp)]
-        if not rows:
-            return []
-        key = "target" if "target" in rows[0] else next(
-            (name for name in rows[0] if name not in {"index", "sample_index"}),
-            None,
-        )
-        if key is None:
-            raise ValueError(f"train targets_csv has no usable column: {path}")
-        return [float(row[key]) for row in rows]
+        return load_float_target_values(path, label="train processed_targets_csv", target_key="target")
 
     def _read_json_mapping(self, path: Path) -> dict[str, Any]:
-        with path.open("r", encoding="utf-8") as fp:
-            payload = json.load(fp)
-        if not isinstance(payload, dict):
-            raise ValueError(f"train preprocess_bundle_json must be mapping: {path}")
-        return payload
+        return load_json_mapping(path, label="train preprocess_bundle_json")
 
     def _build_tabular_feature_contract(
         self,
@@ -626,6 +620,21 @@ class TrainStage:
         if external_dataset_used:
             if not recipe_keys or all(re.match(r"^recipe_\d+$", key) for key in recipe_keys):
                 raise ValueError("contract mismatch (recipe_keys unresolved)")
+        point_sampling_score_key = str(params.get("point_sampling_score_key", "sampling_score")).strip() or "sampling_score"
+        point_sampling_score_index = int(params.get("point_sampling_score_index", -1))
+        if isinstance(point_manifest, Mapping):
+            priv_schema = point_manifest.get("priv_schema")
+            if isinstance(priv_schema, Mapping):
+                manifest_score_index = priv_schema.get("score_feature_index")
+                if isinstance(manifest_score_index, (int, float)):
+                    point_sampling_score_index = int(manifest_score_index)
+                manifest_score_key = str(priv_schema.get("score_feature_name", "")).strip()
+                if manifest_score_key and manifest_score_key != point_sampling_score_key:
+                    warnings.append(
+                        "train point_sampling_score_key differs from point manifest score_feature_name; "
+                        f"using manifest key '{manifest_score_key}'"
+                    )
+                    point_sampling_score_key = manifest_score_key
 
         cfg = SparseDistillConfig(
             teacher_epochs=max(1, int(params.get("teacher_epochs", 40))),
@@ -651,6 +660,9 @@ class TrainStage:
             rollout_weight=float(params.get("rollout_weight", 0.1)),
             temporal_step_weight=str(params.get("temporal_step_weight", "uniform")).strip().lower() or "uniform",
             step_sampling_policy=str(params.get("step_sampling_policy", "uniform")).strip().lower() or "uniform",
+            point_sampling_policy=str(params.get("point_sampling_policy", "uniform")).strip().lower() or "uniform",
+            point_sampling_score_key=point_sampling_score_key,
+            point_sampling_score_index=int(point_sampling_score_index),
             strict_split=bool(params.get("strict_split", False)),
             patch_size=max(0, int(params.get("patch_size", 0))),
             patches_per_step=max(1, int(params.get("patches_per_step", 1))),
@@ -807,7 +819,7 @@ class TrainStage:
                 {"model": "sparse_vn_student", "split": "train", "metric": "distill_gap", "value": float(result.distill_metrics.get("distill_gap", 0.0))},
                 {"model": "sparse_vn_student", "split": "train", "metric": "vn_rmse", "value": float(result.distill_metrics.get("vn_rmse", 0.0))},
                 {"model": "sparse_vn_student", "split": "train", "metric": "rollout_loss", "value": float(result.distill_metrics.get("rollout_loss", 0.0))},
-                {"model": "sparse_vn_student", "split": "train", "metric": "rollout_short_window_error", "value": float(result.distill_metrics.get("rollout_loss", 0.0))},
+                {"model": "sparse_vn_student", "split": "train", "metric": "rollout_short_window_error", "value": _rollout_short_window_error({**result.metrics, **result.distill_metrics})},
                 {"model": "sparse_vn_student", "split": "train", "metric": "best_valid_mae", "value": float(result.distill_metrics.get("best_valid_mae", result.metrics.get("cv_valid_mae", 0.0)))},
                 {"model": "sparse_vn_student", "split": "cv", "metric": "valid_mae", "value": float(result.distill_metrics.get("cv_valid_mae", result.metrics.get("cv_valid_mae", 0.0)))},
                 {"model": "sparse_vn_student", "split": "cv", "metric": "valid_rmse", "value": float(result.distill_metrics.get("cv_valid_rmse", result.metrics.get("cv_valid_rmse", 0.0)))},
@@ -857,7 +869,7 @@ class TrainStage:
             "distill_gap": float(result.metrics.get("distill_gap", 0.0)),
             "vn_rmse": float(result.metrics.get("vn_rmse", result.metrics.get("rmse", 0.0))),
             "rollout_loss": float(result.metrics.get("rollout_loss", 0.0)),
-            "rollout_short_window_error": float(result.metrics.get("rollout_loss", 0.0)),
+            "rollout_short_window_error": _rollout_short_window_error({**result.metrics, **result.distill_metrics}),
             "best_epoch": float(result.metrics.get("best_epoch", 0.0)),
             "best_valid_mae": float(result.metrics.get("best_valid_mae", result.metrics.get("cv_valid_mae", 0.0))),
             "stopped_early": float(result.metrics.get("stopped_early", 0.0)),
@@ -909,6 +921,9 @@ class TrainStage:
                     "rollout_weight": float(cfg.rollout_weight),
                     "temporal_step_weight": str(cfg.temporal_step_weight),
                     "step_sampling_policy": str(cfg.step_sampling_policy),
+                    "point_sampling_policy": str(cfg.point_sampling_policy),
+                    "point_sampling_score_key": str(cfg.point_sampling_score_key),
+                    "point_sampling_score_index": int(cfg.point_sampling_score_index),
                 },
                 "model_architecture": model_architecture,
                 "condition_vector_diagnostics": condition_vector_diagnostics,
@@ -1216,7 +1231,7 @@ class TrainStage:
             "prediction_mean": float(best_metrics["prediction_mean"]),
             "condition_score_mean": float(ood_reference["condition"]["mean"]),
             "feature_score_mean": float(ood_reference["feature"]["mean"]),
-            "rollout_short_window_error": float(best_metrics.get("cv_valid_rmse", best_metrics["rmse"])),
+            "rollout_short_window_error": _rollout_short_window_error(best_metrics),
         }
         if "cv_valid_mae" in best_metrics:
             result_metrics["cv_valid_mae"] = float(best_metrics["cv_valid_mae"])

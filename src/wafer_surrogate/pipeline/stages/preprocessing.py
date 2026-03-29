@@ -7,6 +7,12 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from wafer_surrogate.pipeline.stages.common_io import (
+    load_float_csv_rows,
+    load_float_target_values,
+    load_json_mapping,
+    stage_external_inputs,
+)
 from wafer_surrogate.pipeline.types import ArtifactRef, StageResult
 from wafer_surrogate.pipeline.utils import write_csv, write_json
 from wafer_surrogate.preprocess import (
@@ -143,53 +149,16 @@ class PreprocessingStage:
             raise ValueError("preprocessing report reconstruction_error missing 'inverse_ready'")
 
     def _stage_external_inputs(self, runtime: Any) -> dict[str, str]:
-        run_cfg = getattr(runtime, "run_config", None)
-        stages = getattr(run_cfg, "stages", [])
-        for stage_cfg in stages:
-            if str(getattr(stage_cfg, "name", "")) != self.name:
-                continue
-            raw = getattr(stage_cfg, "external_inputs", {})
-            if isinstance(raw, Mapping):
-                return {str(key): str(value) for key, value in raw.items()}
-        return {}
+        return stage_external_inputs(runtime, self.name)
 
     def _read_feature_rows(self, path: Path) -> list[dict[str, float]]:
-        if not path.exists() or not path.is_file():
-            raise ValueError(f"preprocessing features_csv does not exist: {path}")
-        import csv
-
-        with path.open("r", encoding="utf-8", newline="") as fp:
-            rows = [dict(row) for row in csv.DictReader(fp)]
-        out: list[dict[str, float]] = []
-        for row in rows:
-            out.append({str(key): float(value) for key, value in row.items()})
-        return out
+        return load_float_csv_rows(path, label="preprocessing features_csv")
 
     def _read_target_values(self, path: Path) -> list[float]:
-        if not path.exists() or not path.is_file():
-            raise ValueError(f"preprocessing targets_csv does not exist: {path}")
-        import csv
-
-        with path.open("r", encoding="utf-8", newline="") as fp:
-            rows = [dict(row) for row in csv.DictReader(fp)]
-        if not rows:
-            return []
-        key = "target"
-        if key not in rows[0]:
-            candidate_keys = [name for name in rows[0].keys() if name not in {"index", "sample_index"}]
-            if not candidate_keys:
-                raise ValueError(f"preprocessing targets_csv has no usable numeric column: {path}")
-            key = candidate_keys[0]
-        return [float(row[key]) for row in rows]
+        return load_float_target_values(path, label="preprocessing targets_csv", target_key="target")
 
     def _read_json_mapping(self, path: Path) -> dict[str, Any]:
-        if not path.exists() or not path.is_file():
-            raise ValueError(f"preprocessing reconstruction_bundle_json does not exist: {path}")
-        with path.open("r", encoding="utf-8") as fp:
-            payload = json.load(fp)
-        if not isinstance(payload, dict):
-            raise ValueError(f"preprocessing reconstruction_bundle_json must be a mapping: {path}")
-        return payload
+        return load_json_mapping(path, label="preprocessing reconstruction_bundle_json")
 
     def run(self, runtime: Any, stage_dirs: dict[str, Path]) -> StageResult:
         params = runtime.stage_params("preprocessing")

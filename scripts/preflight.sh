@@ -6,7 +6,11 @@ cd "$ROOT_DIR"
 
 # 1) Python command detection
 # Prefer active virtualenv interpreter when available, then fallback to system python3/python.
-if [ -n "${VIRTUAL_ENV:-}" ] && [ -x "${VIRTUAL_ENV}/bin/python3" ]; then
+if [ -n "${VIRTUAL_ENV:-}" ] && [ -x "${VIRTUAL_ENV}/Scripts/python.exe" ]; then
+  PYTHON="${VIRTUAL_ENV}/Scripts/python.exe"
+elif [ -n "${VIRTUAL_ENV:-}" ] && [ -x "${VIRTUAL_ENV}/Scripts/python" ]; then
+  PYTHON="${VIRTUAL_ENV}/Scripts/python"
+elif [ -n "${VIRTUAL_ENV:-}" ] && [ -x "${VIRTUAL_ENV}/bin/python3" ]; then
   PYTHON="${VIRTUAL_ENV}/bin/python3"
 elif [ -n "${VIRTUAL_ENV:-}" ] && [ -x "${VIRTUAL_ENV}/bin/python" ]; then
   PYTHON="${VIRTUAL_ENV}/bin/python"
@@ -14,6 +18,8 @@ elif command -v python3 >/dev/null 2>&1; then
   PYTHON="$(command -v python3)"
 elif command -v python >/dev/null 2>&1; then
   PYTHON="$(command -v python)"
+elif command -v py >/dev/null 2>&1 && py -3 -c "import sys" >/dev/null 2>&1; then
+  PYTHON="$(py -3 -c "import sys; print(sys.executable)")"
 else
   echo "ERROR: python3/python not found" >&2
   exit 1

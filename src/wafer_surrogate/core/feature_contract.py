@@ -97,6 +97,18 @@ def assert_feature_contract_compatible(*, expected: Mapping[str, Any], actual: M
         raise ValueError(
             f"{context}: contract mismatch (cond_dim expected={lhs['cond_dim']} actual={rhs['cond_dim']})"
         )
+    if lhs["recipe_keys"] != rhs["recipe_keys"]:
+        raise ValueError(
+            f"{context}: contract mismatch (recipe_keys expected={lhs['recipe_keys']} actual={rhs['recipe_keys']})"
+        )
+    if abs(float(lhs["band_width"]) - float(rhs["band_width"])) > 1e-12:
+        raise ValueError(
+            f"{context}: contract mismatch (band_width expected={lhs['band_width']} actual={rhs['band_width']})"
+        )
+    if abs(float(lhs["min_grad_norm"]) - float(rhs["min_grad_norm"])) > 1e-12:
+        raise ValueError(
+            f"{context}: contract mismatch (min_grad_norm expected={lhs['min_grad_norm']} actual={rhs['min_grad_norm']})"
+        )
 
 
 def validate_predict_vn_contract(model: Any) -> None:

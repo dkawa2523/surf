@@ -74,6 +74,8 @@ def rollout(
     model: Any,
     *,
     simulation_options: Mapping[str, object] | None = None,
+    strict_simulation: bool = False,
+    warnings: list[str] | None = None,
 ) -> list[Any]:
     if hasattr(model, "predict_phi"):
         return [
@@ -99,7 +101,11 @@ def rollout(
             dt=float(run.dt),
             **sim_opts,
         )
-    except Exception:
+    except Exception as exc:
+        if strict_simulation:
+            raise
+        if warnings is not None:
+            warnings.append(f"rollout fallback: simulate() failed, using scalar fallback ({exc})")
         return fallback_scalar_rollout(run, model, simulation_options=simulation_options)
 
 
@@ -109,6 +115,14 @@ def rollout_with_conditions(
     model: Any,
     *,
     simulation_options: Mapping[str, object] | None = None,
+    strict_simulation: bool = False,
+    warnings: list[str] | None = None,
 ) -> list[Any]:
     run = replace(template, recipe=to_float_map(conditions))
-    return rollout(run, model, simulation_options=simulation_options)
+    return rollout(
+        run,
+        model,
+        simulation_options=simulation_options,
+        strict_simulation=bool(strict_simulation),
+        warnings=warnings,
+    )

@@ -12,6 +12,13 @@ import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 
+from wafer_surrogate.verify.checks.catalog import OPTIONAL_MODULES, REQUIRED_MODULES
+from wafer_surrogate.verify.checks.runner import (
+    run_named_check,
+    run_optional_module_checks,
+    run_required_module_checks,
+)
+
 
 def _normalize_argv(argv: Sequence[str] | None) -> list[str]:
     args = list(sys.argv[1:] if argv is None else argv)
@@ -307,6 +314,54 @@ def _check_simulate_rollout() -> tuple[bool, str]:
         return True, "ok: simulate rollout"
     except Exception as exc:  # pragma: no cover - defensive for environment issues
         return False, f"fail: simulate behavior ({exc})"
+
+
+def _check_rollout_strict_simulation() -> tuple[bool, str]:
+    try:
+        from wafer_surrogate.core import rollout
+        from wafer_surrogate.data.synthetic import generate_synthetic_sdf_dataset
+    except Exception as exc:  # pragma: no cover - defensive for environment issues
+        return False, f"fail: rollout strict import ({exc})"
+
+    try:
+        dataset = generate_synthetic_sdf_dataset(
+            num_runs=1,
+            num_steps=3,
+            grid_size=8,
+            dt=0.1,
+        )
+        run = dataset.runs[0]
+
+        class _BrokenModel:
+            def predict_vn(self, phi: object, conditions: object, step_index: int) -> list[float]:
+                return [0.1, 0.2]
+
+            def predict(self, features: object) -> float:
+                return 0.1
+
+        model = _BrokenModel()
+        warnings: list[str] = []
+        fallback_rollout = rollout(
+            run,
+            model,
+            strict_simulation=False,
+            warnings=warnings,
+        )
+        if len(fallback_rollout) != len(run.phi_t):
+            return False, "fail: rollout fallback length mismatch"
+        if not any(str(msg).startswith("rollout fallback:") for msg in warnings):
+            return False, "fail: rollout fallback warning was not recorded"
+
+        strict_failed = False
+        try:
+            rollout(run, model, strict_simulation=True)
+        except Exception:
+            strict_failed = True
+        if not strict_failed:
+            return False, "fail: rollout strict_simulation=True did not raise"
+        return True, "ok: rollout strict_simulation fallback/raise behavior"
+    except Exception as exc:  # pragma: no cover - defensive for environment issues
+        return False, f"fail: rollout strict behavior ({exc})"
 
 
 def _check_surface_graph_model() -> tuple[bool, str]:
@@ -801,9 +856,9 @@ def _check_pipeline_stage_workflow(*, include_inference: bool = True) -> tuple[b
                 bundle = json.load(fp)
             if not isinstance(bundle, dict):
                 return False, "fail: featurization reconstruction bundle is not a mapping"
-            if not str(bundle.get("payload_path", "")).endswith("/features.csv"):
+            if Path(str(bundle.get("payload_path", ""))).name != "features.csv":
                 return False, "fail: featurization reconstruction bundle payload_path is invalid"
-            if not str(bundle.get("target_path", "")).endswith("/targets.csv"):
+            if Path(str(bundle.get("target_path", ""))).name != "targets.csv":
                 return False, "fail: featurization reconstruction bundle target_path is invalid"
             refs = bundle.get("row_refs")
             if not isinstance(refs, list) or not refs:
@@ -1319,6 +1374,90 @@ def _check_contract_and_split_guards() -> tuple[bool, str]:
         if not mismatch_failed:
             return False, "fail: feature contract mismatch did not raise"
 
+        recipe_key_mismatch_failed = False
+        try:
+            assert_feature_contract_compatible(
+                expected={
+                    "feature_names": ["feat_a", "feat_b"],
+                    "feat_dim": 2,
+                    "cond_dim": 1,
+                    "recipe_keys": ["pressure"],
+                    "band_width": 0.5,
+                    "min_grad_norm": 1e-6,
+                },
+                actual={
+                    "feature_names": ["feat_a", "feat_b"],
+                    "feat_dim": 2,
+                    "cond_dim": 1,
+                    "recipe_keys": ["rf_power"],
+                    "band_width": 0.5,
+                    "min_grad_norm": 1e-6,
+                },
+                context="verify.contract.recipe_keys",
+            )
+        except ValueError as exc:
+            if "contract mismatch" not in str(exc):
+                return False, "fail: recipe_keys mismatch error message is not standardized"
+            recipe_key_mismatch_failed = True
+        if not recipe_key_mismatch_failed:
+            return False, "fail: recipe_keys mismatch did not raise"
+
+        band_width_mismatch_failed = False
+        try:
+            assert_feature_contract_compatible(
+                expected={
+                    "feature_names": ["feat_a", "feat_b"],
+                    "feat_dim": 2,
+                    "cond_dim": 1,
+                    "recipe_keys": ["recipe_0"],
+                    "band_width": 0.5,
+                    "min_grad_norm": 1e-6,
+                },
+                actual={
+                    "feature_names": ["feat_a", "feat_b"],
+                    "feat_dim": 2,
+                    "cond_dim": 1,
+                    "recipe_keys": ["recipe_0"],
+                    "band_width": 0.7,
+                    "min_grad_norm": 1e-6,
+                },
+                context="verify.contract.band_width",
+            )
+        except ValueError as exc:
+            if "contract mismatch" not in str(exc):
+                return False, "fail: band_width mismatch error message is not standardized"
+            band_width_mismatch_failed = True
+        if not band_width_mismatch_failed:
+            return False, "fail: band_width mismatch did not raise"
+
+        grad_norm_mismatch_failed = False
+        try:
+            assert_feature_contract_compatible(
+                expected={
+                    "feature_names": ["feat_a", "feat_b"],
+                    "feat_dim": 2,
+                    "cond_dim": 1,
+                    "recipe_keys": ["recipe_0"],
+                    "band_width": 0.5,
+                    "min_grad_norm": 1e-6,
+                },
+                actual={
+                    "feature_names": ["feat_a", "feat_b"],
+                    "feat_dim": 2,
+                    "cond_dim": 1,
+                    "recipe_keys": ["recipe_0"],
+                    "band_width": 0.5,
+                    "min_grad_norm": 1e-5,
+                },
+                context="verify.contract.min_grad_norm",
+            )
+        except ValueError as exc:
+            if "contract mismatch" not in str(exc):
+                return False, "fail: min_grad_norm mismatch error message is not standardized"
+            grad_norm_mismatch_failed = True
+        if not grad_norm_mismatch_failed:
+            return False, "fail: min_grad_norm mismatch did not raise"
+
         missing_feature_failed = False
         try:
             validate_rows_against_feature_contract(
@@ -1411,8 +1550,10 @@ strict_split = true
 
 def _check_tracked_cache_artifacts() -> tuple[bool, str]:
     try:
+        repo_root = Path(__file__).resolve().parents[4]
+        git_prefix = ["git", "-c", f"safe.directory={repo_root}", "-C", str(repo_root)]
         probe = subprocess.run(
-            ["git", "rev-parse", "--is-inside-work-tree"],
+            [*git_prefix, "rev-parse", "--is-inside-work-tree"],
             check=False,
             capture_output=True,
             text=True,
@@ -1420,7 +1561,7 @@ def _check_tracked_cache_artifacts() -> tuple[bool, str]:
         if probe.returncode != 0 or probe.stdout.strip().lower() != "true":
             return True, "ok: tracked-cache check skipped (not a git worktree)"
         listed = subprocess.run(
-            ["git", "ls-files"],
+            [*git_prefix, "ls-files"],
             check=False,
             capture_output=True,
             text=True,
@@ -1446,35 +1587,6 @@ def run_verify(quick: bool = False, full: bool = False) -> int:
     if full:
         os.environ.setdefault("WAFER_SURROGATE_REQUIRE_REAL_ME", "1")
 
-    required_modules = [
-        "wafer_surrogate",
-        "wafer_surrogate.cli",
-        "wafer_surrogate.data.synthetic",
-        "wafer_surrogate.data.sem",
-        "wafer_surrogate.features",
-        "wafer_surrogate.geometry",
-        "wafer_surrogate.inference",
-        "wafer_surrogate.inference.calibrate",
-        "wafer_surrogate.inference.ood",
-        "wafer_surrogate.inference.simulate",
-        "wafer_surrogate.metrics",
-        "wafer_surrogate.observation",
-        "wafer_surrogate.pipeline",
-        "wafer_surrogate.prior",
-        "wafer_surrogate.preprocess",
-        "wafer_surrogate.config",
-        "wafer_surrogate.models",
-        "wafer_surrogate.models.api",
-        "wafer_surrogate.verify",
-    ]
-    optional_modules = [
-        "numpy",
-        "matplotlib",
-        "torch",
-        "MinkowskiEngine",
-        "sbi",
-        "botorch",
-    ]
     capabilities_obj = None
     try:
         from wafer_surrogate.runtime import detect_runtime_capabilities
@@ -1485,99 +1597,49 @@ def run_verify(quick: bool = False, full: bool = False) -> int:
     except Exception:
         pass
 
-    failures = 0
-    for module_name in required_modules:
-        ok, message = _check_import(module_name)
-        print(message)
-        if not ok:
-            failures += 1
+    failures = run_required_module_checks(
+        modules=REQUIRED_MODULES,
+        check_import=_check_import,
+    )
 
-    registry_ok, registry_message = _check_registry_behaviors()
-    print(registry_message)
-    if not registry_ok:
-        failures += 1
+    core_checks = [
+        _check_registry_behaviors,
+        _check_synthetic_generation,
+        _check_vn_pseudo_label_generation,
+        _check_geometry_utilities,
+        _check_simulate_rollout,
+        _check_rollout_strict_simulation,
+        _check_surface_graph_model,
+        _check_operator_baseline,
+        _check_metrics_and_ood_hooks,
+        _check_sem_io_and_map_calibration,
+        _check_observation_projection_and_calibration,
+        _check_shape_prior_hooks,
+    ]
+    for fn in core_checks:
+        failures += run_named_check(fn=fn)
 
-    synthetic_ok, synthetic_message = _check_synthetic_generation()
-    print(synthetic_message)
-    if not synthetic_ok:
-        failures += 1
+    failures += run_named_check(
+        fn=_check_sbi_posterior_estimation,
+        count_skip_as_failure=bool(full),
+    )
 
-    pseudo_ok, pseudo_message = _check_vn_pseudo_label_generation()
-    print(pseudo_message)
-    if not pseudo_ok:
-        failures += 1
+    if quick:
+        print("skip(optional): teacher-student distillation check disabled in --quick")
+    else:
+        failures += run_named_check(fn=_check_teacher_student_distillation)
 
-    geometry_ok, geometry_message = _check_geometry_utilities()
-    print(geometry_message)
-    if not geometry_ok:
-        failures += 1
+    failures += run_named_check(
+        fn=lambda: _check_pipeline_stage_workflow(include_inference=not quick),
+    )
 
-    simulate_ok, simulate_message = _check_simulate_rollout()
-    print(simulate_message)
-    if not simulate_ok:
-        failures += 1
+    if quick:
+        print("skip(optional): advanced pipeline check disabled in --quick")
+    else:
+        failures += run_named_check(fn=_check_pipeline_advanced_features)
 
-    surface_ok, surface_message = _check_surface_graph_model()
-    print(surface_message)
-    if not surface_ok:
-        failures += 1
-
-    operator_ok, operator_message = _check_operator_baseline()
-    print(operator_message)
-    if not operator_ok:
-        failures += 1
-
-    metrics_ok, metrics_message = _check_metrics_and_ood_hooks()
-    print(metrics_message)
-    if not metrics_ok:
-        failures += 1
-
-    sem_ok, sem_message = _check_sem_io_and_map_calibration()
-    print(sem_message)
-    if not sem_ok:
-        failures += 1
-
-    observation_ok, observation_message = _check_observation_projection_and_calibration()
-    print(observation_message)
-    if not observation_ok:
-        failures += 1
-
-    prior_ok, prior_message = _check_shape_prior_hooks()
-    print(prior_message)
-    if not prior_ok:
-        failures += 1
-
-    sbi_ok, sbi_message = _check_sbi_posterior_estimation()
-    print(sbi_message)
-    if not sbi_ok:
-        failures += 1
-    if full and sbi_message.startswith("skip(optional):"):
-        failures += 1
-
-    distill_ok, distill_message = _check_teacher_student_distillation()
-    print(distill_message)
-    if not distill_ok:
-        failures += 1
-
-    pipeline_ok, pipeline_message = _check_pipeline_stage_workflow(include_inference=not quick)
-    print(pipeline_message)
-    if not pipeline_ok:
-        failures += 1
-
-    advanced_ok, advanced_message = _check_pipeline_advanced_features()
-    print(advanced_message)
-    if not advanced_ok:
-        failures += 1
-
-    guard_ok, guard_message = _check_contract_and_split_guards()
-    print(guard_message)
-    if not guard_ok:
-        failures += 1
-
-    cache_ok, cache_message = _check_tracked_cache_artifacts()
-    print(cache_message)
-    if not cache_ok:
-        failures += 1
+    failures += run_named_check(fn=_check_contract_and_split_guards)
+    failures += run_named_check(fn=_check_tracked_cache_artifacts)
 
     if quick:
         print("quick mode: optional dependency checks are informational only.")
@@ -1586,16 +1648,11 @@ def run_verify(quick: bool = False, full: bool = False) -> int:
         print("fail: verify --full requires a real MinkowskiEngine install; local compatibility shim is not allowed")
         failures += 1
 
-    for module_name in optional_modules:
-        ok, message = _check_import(module_name)
-        if ok:
-            print(message)
-            continue
-        if full:
-            print(message)
-            failures += 1
-        else:
-            print(message.replace("fail:", "skip(optional):", 1))
+    failures += run_optional_module_checks(
+        modules=OPTIONAL_MODULES,
+        check_import=_check_import,
+        full=bool(full),
+    )
 
     if failures:
         print(f"verify: {failures} required check(s) failed.")

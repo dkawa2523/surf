@@ -12,7 +12,9 @@ __pycache__/
 # virtualenv
 .venv/
 .venv_torchmd_tmp/
+.venv_torchmd*/
 venv/
+sbi-logs/
 
 # editor
 .vscode/

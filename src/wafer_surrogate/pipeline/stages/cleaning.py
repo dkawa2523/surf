@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from wafer_surrogate.data.synthetic import SyntheticSDFDataset, SyntheticSDFRun
+from wafer_surrogate.data.synthetic import SyntheticSDFDataset
 from wafer_surrogate.pipeline.types import ArtifactRef, StageResult
 from wafer_surrogate.pipeline.utils import write_json
+from wafer_surrogate.pipeline.stages.common_io import dataset_from_json, stage_external_inputs
 
 
 def _parse_bounds_map(value: object) -> dict[str, tuple[float, float]]:
@@ -44,55 +44,11 @@ def _resolve_normalization_ranges(
     return out
 
 
-def _dataset_from_json(path: Path) -> SyntheticSDFDataset:
-    with path.open("r", encoding="utf-8") as fp:
-        payload = json.load(fp)
-    if not isinstance(payload, Mapping):
-        raise ValueError(f"cleaning raw_dataset_json must be a mapping: {path}")
-    runs_payload = payload.get("runs")
-    if not isinstance(runs_payload, list):
-        raise ValueError(f"cleaning raw_dataset_json must include list 'runs': {path}")
-    runs: list[SyntheticSDFRun] = []
-    for index, run in enumerate(runs_payload):
-        if not isinstance(run, Mapping):
-            raise ValueError(f"cleaning runs[{index}] must be a mapping")
-        recipe_raw = run.get("recipe", {})
-        if not isinstance(recipe_raw, Mapping):
-            raise ValueError(f"cleaning runs[{index}].recipe must be a mapping")
-        phi_t_raw = run.get("phi_t")
-        if not isinstance(phi_t_raw, list) or not phi_t_raw:
-            raise ValueError(f"cleaning runs[{index}].phi_t must be non-empty list")
-        phi_t = []
-        for frame in phi_t_raw:
-            if hasattr(frame, "tolist"):
-                frame = frame.tolist()
-            if not isinstance(frame, list):
-                raise ValueError(f"cleaning runs[{index}] frame must be list")
-            phi_t.append([[float(cell) for cell in row] for row in frame])
-        runs.append(
-            SyntheticSDFRun(
-                run_id=str(run.get("run_id", f"run_{index:03d}")),
-                dt=float(run.get("dt", 0.1)),
-                recipe={str(k): float(v) for k, v in recipe_raw.items()},
-                phi_t=phi_t,
-            )
-        )
-    return SyntheticSDFDataset(runs=runs)
-
-
 class DataCleaningStage:
     name = "cleaning"
 
     def _stage_external_inputs(self, runtime: Any) -> dict[str, str]:
-        run_cfg = getattr(runtime, "run_config", None)
-        stages = getattr(run_cfg, "stages", [])
-        for stage_cfg in stages:
-            if str(getattr(stage_cfg, "name", "")) != self.name:
-                continue
-            raw = getattr(stage_cfg, "external_inputs", {})
-            if isinstance(raw, Mapping):
-                return {str(key): str(value) for key, value in raw.items()}
-        return {}
+        return stage_external_inputs(runtime, self.name)
 
     def run(self, runtime: Any, stage_dirs: dict[str, Path]) -> StageResult:
         params = runtime.stage_params("cleaning")
@@ -106,7 +62,7 @@ class DataCleaningStage:
                 resolved = Path(dataset_path)
                 if not resolved.exists() or not resolved.is_file():
                     raise ValueError(f"cleaning raw_dataset_json does not exist: {resolved}")
-                dataset = _dataset_from_json(resolved)
+                dataset = dataset_from_json(resolved, label="cleaning raw_dataset_json")
                 input_refs["raw_dataset_json"] = str(resolved)
         if not isinstance(dataset, SyntheticSDFDataset):
             raise ValueError("cleaning stage requires dataset_raw or external_inputs.raw_dataset_json")
